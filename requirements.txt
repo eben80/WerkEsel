@@ -1,0 +1,8 @@
+streamlit
+python-dotenv
+SQLAlchemy
+pandas
+pymysql
+openai
+python-jobspy
+fpdf2
