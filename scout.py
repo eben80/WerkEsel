@@ -36,9 +36,20 @@ def setup_db():
                 status ENUM('new', 'approved', 'rejected', 'applied') DEFAULT 'new',
                 match_score INT DEFAULT NULL,
                 ai_summary TEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                matched_at TIMESTAMP DEFAULT NULL,
+                applied_at TIMESTAMP DEFAULT NULL
             )
         """))
+        # Add columns if they don't exist (for existing databases)
+        try:
+            conn.execute(text("ALTER TABLE job_leads ADD COLUMN matched_at TIMESTAMP DEFAULT NULL"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE job_leads ADD COLUMN applied_at TIMESTAMP DEFAULT NULL"))
+        except Exception:
+            pass
         conn.commit()
     print("✅ Database table verified.")
 

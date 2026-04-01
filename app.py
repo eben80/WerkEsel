@@ -44,7 +44,7 @@ st.divider()
 # --- END STATUS DASHBOARD ---
 # 1. Fetch Jobs: Show 'new' high-scores AND 'applied' (tailored) jobs
 query = text("""
-    SELECT id, title, company, match_score, ai_summary, job_url, status 
+    SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, applied_at
     FROM job_leads 
     WHERE (match_score >= 70 AND status = 'new') OR status = 'applied'
     ORDER BY status DESC, match_score DESC
@@ -66,7 +66,16 @@ else:
             
             with col1:
                 st.subheader(f"{row['title']} @ {company}")
+
+                # --- TIMESTAMPS ---
+                ts_info = f"Scraped: {row['created_at'].strftime('%Y-%m-%d %H:%M')}"
+                if pd.notnull(row['matched_at']):
+                    ts_info += f" | Matched: {row['matched_at'].strftime('%Y-%m-%d %H:%M')}"
+                if pd.notnull(row['applied_at']):
+                    ts_info += f" | Tailored: {row['applied_at'].strftime('%Y-%m-%d %H:%M')}"
+
                 st.caption(f"Score: {row['match_score']}% | Status: {status.upper()} | [View Posting]({row['job_url']})")
+                st.caption(ts_info)
                 st.write(f"**AI Insight:** {row['ai_summary']}")
                 
                 # --- DOWNLOAD SECTION ---

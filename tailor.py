@@ -136,7 +136,7 @@ def run_tailor():
                 generate_pdf(f"resumes/{job_id}_Resume.pdf", f"Targeted Resume: {company}", full_resume)
                 generate_pdf(f"resumes/{job_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl)
 
-                conn.execute(text("UPDATE job_leads SET status = 'applied' WHERE id = :id"), {"id": job_id})
+                conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": job_id})
                 conn.commit()
                 print(f"✅ Application Ready for {company}")
 
