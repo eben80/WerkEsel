@@ -4,22 +4,26 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import pandas as pd
 import requests
-import pkg_resources
+from importlib import metadata
 
 # --- VERSION CHECK ---
+@st.cache_data(ttl=3600)
 def check_jobspy_update():
     try:
         package_name = "python-jobspy"
-        current_version = pkg_resources.get_distribution(package_name).version
+        current_version = metadata.version(package_name)
 
         response = requests.get(f"https://pypi.org/pypi/{package_name}/json", timeout=2)
         latest_version = response.json()["info"]["version"]
 
         if current_version != latest_version:
-            st.warning(f"🔔 Update available for **{package_name}**: {current_version} ⮕ {latest_version}")
-            st.code(f"pip install --upgrade {package_name}")
+            return {
+                "message": f"🔔 Update available for **{package_name}**: {current_version} ⮕ {latest_version}",
+                "command": f"pip install --upgrade {package_name}"
+            }
     except Exception:
         pass # Silently fail if check fails
+    return None
 
 # --- CONFIG ---
 # Load the variables from the .env file
@@ -39,7 +43,10 @@ st.set_page_config(page_title="WerkEsel Job Board", layout="wide")
 st.title("🚜 WerkEsel: PM Job Matcher")
 st.write("Reviewing jobs for **tefinitely.com**")
 
-check_jobspy_update()
+update_info = check_jobspy_update()
+if update_info:
+    st.warning(update_info["message"])
+    st.code(update_info["command"])
 # --- NEW: STATUS DASHBOARD ---
 with engine.connect() as conn:
     stats_query = text("""

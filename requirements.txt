@@ -7,4 +7,3 @@ openai
 python-jobspy
 fpdf2
 requests
-setuptools
