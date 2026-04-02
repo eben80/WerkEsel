@@ -85,53 +85,45 @@ def run_tailor():
             return
 
         for db_id, job_id, title, company, description in jobs:
-            print(f"🧵 Building 'Versatile Expert' application for {title} at {company}...")
+            print(f"🧵 Tailoring application for {title} at {company}...")
 
-            # DUAL-THREAT PROMPT: Highlighting Telco scale while maintaining SaaS/Platform versatility
-            resume_prompt = f"""
-            Task: Write a 1-page Canadian-style resume for {title} at {company}.
-            Use my PROFILE: {my_profile}
-            Job Context: {description[:2000]}
+            combined_prompt = f"""
+            Task: Write a 1-page Canadian-style resume and a 3-paragraph cover letter for {title} at {company}.
             
-            STRICT FORMATTING RULES:
-            - Do NOT include my name, contact info, or the job title in your text (I will add those automatically).
-            - Do NOT use markdown (no **, no __, no #, no ---).
-            - Use ONLY plain text.
-            - Start immediately with the 'PROFESSIONAL SUMMARY' section.
-            - Use '-' for bullets.
+            CANDIDATE PROFILE:
+            {my_profile}
             
-            Strategy: Highlight 'Scale & Complexity' as the primary value, using Telecom as the evidence.
+            JOB CONTEXT:
+            {description[:3000]}
             
-            Requirements:
-            1. SUMMARY: Position me as a 'Platform & Technical Product Leader' experienced in high-concurrency environments and large-scale digital transformations and highlight telecoms specific experience if the role relates to a telco company.
-            2. CORE COMPETENCIES: A list of 6-8 bulleted items and include a mix of:
-               - Niche: TM Forum Standards, API Modernization, OSS/BSS Orchestration.
-               - Versatile: SaaS Product Strategy, Stakeholder Management, Agile Roadmap Prioritization, AI/ML Integration, ROI Optimization.
-            3. EXPERIENCE: 
-               - For Deutsche Telekom roles, emphasize the 'Platform' nature of the work (e.g., SaaS Capabilities, Pricing Engines, Latency Reduction).
-               - Use phrases like 'High-scale ecosystem' and 'Enterprise-grade infrastructure' to appeal to non-telco tech companies.
-            4. FORMAT: Letter size, plain text, reverse chronological
-            """
+            RESUME GUIDELINES:
+            - Highlight 'Scale & Complexity' using Telecom as evidence.
+            - Position me as a 'Platform & Technical Product Leader'.
+            - Include competencies: API Modernization, OSS/BSS Orchestration, SaaS Product Strategy, Stakeholder Management, Agile, ROI Optimization.
+            - Emphasize the 'Platform' nature of Deutsche Telekom work (Pricing Engines, Latency Reduction).
+            - STRICT: No personal info, no markdown, plain text ONLY, start with 'PROFESSIONAL SUMMARY', use '-' for bullets.
 
-            cl_prompt = f"""
-            Write a 3-paragraph cover letter for {title} at {company}.
-            Bridge the gap: Explain how managing the complexity of a global Tier-1 Telco platform (DT) 
-            has equipped me to solve the most difficult scale and optimization challenges at {company}.
-            Focus on the €1.5M savings as a 'Data-Driven Product Win' applicable to any industry.
+            COVER LETTER GUIDELINES:
+            - Highlight suitability based on required skills and my achievements.
+            - FOCUS: If the role is relevant to large Telco, emphasize that experience.
+            - Bridge the gap: Show how global Tier-1 Telco platform complexity equips me for challenges at {company}.
+            - Mention the €1.5M savings as a data-driven win.
+
+            RETURN ONLY A JSON OBJECT with these keys:
+            "resume": (The plain text resume content)
+            "cover_letter": (The plain text cover letter content)
             """
 
             try:
-                res_resp = client.chat.completions.create(
+                response = client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": resume_prompt}]
+                    messages=[{"role": "user", "content": combined_prompt}],
+                    response_format={ "type": "json_object" }
                 )
-                full_resume = res_resp.choices[0].message.content
                 
-                cl_resp = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": cl_prompt}]
-                )
-                full_cl = cl_resp.choices[0].message.content
+                result = json.loads(response.choices[0].message.content)
+                full_resume = result.get("resume", "")
+                full_cl = result.get("cover_letter", "")
                 
                 # Use db_id for file naming to be consistent with app.py's expected patterns
                 generate_pdf(f"resumes/{db_id}_Resume.pdf", f"Targeted Resume: {company}", full_resume)

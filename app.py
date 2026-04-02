@@ -271,6 +271,18 @@ else:
                                 conn.commit()
                             st.rerun()
 
+                        if st.button("♻️ Re-tailor", key=f"retailor_{db_id}", help="Revert to approved and delete docs"):
+                            # Cleanup files
+                            resume_path = os.path.join(RESUME_DIR, f"{db_id}_Resume.pdf")
+                            cl_path = os.path.join(RESUME_DIR, f"{db_id}_CoverLetter.pdf")
+                            if os.path.exists(resume_path): os.remove(resume_path)
+                            if os.path.exists(cl_path): os.remove(cl_path)
+
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'approved', tailored_at = NULL WHERE id = :id"), {"id": db_id})
+                                conn.commit()
+                            st.rerun()
+
                     elif status == 'applied':
                         if st.button("↩️ Unmark Applied", key=f"unmark_app_{db_id}"):
                             with engine.connect() as conn:
@@ -310,8 +322,8 @@ else:
             if batch_archive:
                 with engine.connect() as conn:
                     conn.execute(
-                        text("UPDATE job_leads SET status = 'archived' WHERE id IN :ids AND status != 'new'"),
-                        {"ids": tuple(selected_ids)}
+                        text("UPDATE job_leads SET status = 'archived' WHERE id IN :ids AND status != 'new'").bindparams(st.bindparam("ids", expanding=True)),
+                        {"ids": selected_ids}
                     )
                     conn.commit()
                 st.rerun()
@@ -325,6 +337,9 @@ else:
                     if os.path.exists(cl_path): os.remove(cl_path)
 
                 with engine.connect() as conn:
-                    conn.execute(text("DELETE FROM job_leads WHERE id IN :ids"), {"ids": tuple(selected_ids)})
+                    conn.execute(
+                        text("DELETE FROM job_leads WHERE id IN :ids").bindparams(st.bindparam("ids", expanding=True)),
+                        {"ids": selected_ids}
+                    )
                     conn.commit()
                 st.rerun()
