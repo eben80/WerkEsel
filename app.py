@@ -61,7 +61,7 @@ setup_db() # Run migration on start
 
 RESUME_DIR = "resumes" # Ensure this matches your tailor.py path
 
-st.set_page_config(page_title="WerkEsel Job Board", layout="wide")
+st.set_page_config(page_title="WerkEsel Job Assistant", layout="wide", page_icon="🫏")
 
 # --- VERSION CHECK ---
 @st.cache_data(ttl=3600)
@@ -82,7 +82,7 @@ def check_jobspy_update():
         pass # Silently fail if check fails
     return None
 
-st.title("🚜 WerkEsel: PM Job Matcher")
+st.title("🫏 WerkEsel: Job Assistant")
 st.write("Reviewing jobs for **tefinitely.com**")
 
 update_info = check_jobspy_update()
