@@ -25,6 +25,45 @@ def check_jobspy_update():
         pass # Silently fail if check fails
     return None
 
+# --- DB MIGRATION ---
+def setup_db():
+    """Ensures the table exists and has all necessary columns."""
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS job_leads (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                job_id VARCHAR(255) UNIQUE,
+                site VARCHAR(50),
+                title VARCHAR(255),
+                company VARCHAR(255),
+                location VARCHAR(255),
+                job_url TEXT,
+                description TEXT,
+                is_remote BOOLEAN DEFAULT FALSE,
+                date_posted DATE,
+                status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new',
+                match_score INT DEFAULT NULL,
+                ai_summary TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                matched_at TIMESTAMP DEFAULT NULL,
+                tailored_at TIMESTAMP DEFAULT NULL,
+                applied_at TIMESTAMP DEFAULT NULL
+            )
+        """))
+        # Add columns if they don't exist (for older existing databases)
+        for col in ["matched_at", "tailored_at", "applied_at"]:
+            try:
+                conn.execute(text(f"ALTER TABLE job_leads ADD COLUMN {col} TIMESTAMP DEFAULT NULL"))
+            except Exception:
+                pass # Already exists
+
+        # Update ENUM for status column
+        try:
+            conn.execute(text("ALTER TABLE job_leads MODIFY COLUMN status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new'"))
+        except Exception:
+            pass
+        conn.commit()
+
 # --- CONFIG ---
 # Load the variables from the .env file
 load_dotenv()
@@ -36,6 +75,9 @@ DB_NAME = os.getenv("DB_NAME")
 
 DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
 engine = create_engine(DB_URL)
+
+setup_db() # Run migration on start
+
 RESUME_DIR = "resumes" # Ensure this matches your tailor.py path
 
 st.set_page_config(page_title="WerkEsel Job Board", layout="wide")
