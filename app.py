@@ -98,19 +98,21 @@ with engine.connect() as conn:
             COUNT(CASE WHEN status = 'approved' THEN 1 END) as pending_tailor,
             COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply,
             COUNT(CASE WHEN status = 'applied' THEN 1 END) as applied,
+            COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
             COUNT(CASE WHEN status = 'archived' THEN 1 END) as archived
         FROM job_leads
     """)
     stats = conn.execute(stats_query).fetchone()
 
-# Display metrics in 6 columns
-m1, m2, m3, m4, m5, m6 = st.columns(6)
+# Display metrics in 7 columns
+m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
 m1.metric("📥 Unscored", stats[0])
 m2.metric("🔥 High Matches", stats[1])
 m3.metric("🧵 Pending Tailor", stats[2])
 m4.metric("✅ Ready to Apply", stats[3])
 m5.metric("🚀 Applied", stats[4])
-m6.metric("🗑️ Archived", stats[5])
+m6.metric("❌ Rejected", stats[5])
+m7.metric("🗑️ Archived", stats[6])
 
 st.divider()
 
@@ -118,7 +120,7 @@ st.divider()
 st.subheader("📋 Job Leads")
 filter_status = st.pills(
     "Filter by Status:",
-    options=["All", "High Matches (New)", "Pending Tailor (Approved)", "Ready to Apply (Tailored)", "Applied", "Archived"],
+    options=["All", "High Matches (New)", "Pending Tailor (Approved)", "Ready to Apply (Tailored)", "Applied", "Rejected", "Archived"],
     default="All"
 )
 
@@ -127,6 +129,7 @@ status_map = {
     "Pending Tailor (Approved)": "approved",
     "Ready to Apply (Tailored)": "tailored",
     "Applied": "applied",
+    "Rejected": "rejected",
     "Archived": "archived"
 }
 
@@ -135,8 +138,8 @@ status_map = {
 query = text("""
     SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
     FROM job_leads 
-    WHERE status IN ('new', 'approved', 'tailored', 'applied', 'archived')
-    ORDER BY FIELD(status, 'tailored', 'applied', 'new', 'approved', 'archived'), match_score DESC
+    WHERE status IN ('new', 'approved', 'tailored', 'applied', 'rejected', 'archived')
+    ORDER BY FIELD(status, 'tailored', 'applied', 'new', 'approved', 'rejected', 'archived'), match_score DESC
 """)
 
 with engine.connect() as conn:
@@ -180,7 +183,7 @@ else:
                     st.caption(f"Score: {row['match_score']}% | Status: {status.upper()} | [View Posting]({row['job_url']})")
                     st.caption(ts_info)
                     st.write(f"**AI Insight:** {row['ai_summary']}")
-                    
+
                     # --- DOWNLOAD SECTION ---
                     if status in ['tailored', 'applied']:
                         st.info("📂 Tailored documents are ready for download:")
@@ -234,29 +237,36 @@ else:
                                 conn.commit()
                             st.rerun()
 
-                    # 2. Secondary Actions (Archive) for non-new jobs
-                    if status in ['tailored', 'applied']:
-                        if st.button("🗑️ Archive", key=f"arc_{job_id}"):
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
-                                conn.commit()
-                            st.rerun()
+                elif status == 'applied':
+                    if st.button("↩️ Unmark Applied", key=f"unmark_app_{job_id}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status = 'tailored', applied_at = NULL WHERE id = :id"), {"id": job_id})
+                            conn.commit()
+                        st.rerun()
 
-                    # 3. Permanent Deletion for archived jobs
-                    if status == 'archived':
-                        if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
-                            # --- CLEANUP FILES ---
-                            resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
-                            cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
+                # 2. Secondary Actions (Archive) for tailored/applied jobs
+                if status in ['tailored', 'applied']:
+                    if st.button("🗑️ Archive", key=f"arc_{job_id}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
+                            conn.commit()
+                        st.rerun()
 
-                            if os.path.exists(resume_path):
-                                os.remove(resume_path)
-                            if os.path.exists(cl_path):
-                                os.remove(cl_path)
+                # 3. Permanent Deletion for archived and rejected jobs
+                if status in ['archived', 'rejected']:
+                    if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
+                        # --- CLEANUP FILES ---
+                        resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
+                        cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
 
-                            # --- DELETE DB RECORD ---
-                            with engine.connect() as conn:
-                                conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
-                                conn.commit()
-                            st.rerun()
+                        if os.path.exists(resume_path):
+                            os.remove(resume_path)
+                        if os.path.exists(cl_path):
+                            os.remove(cl_path)
+
+                        # --- DELETE DB RECORD ---
+                        with engine.connect() as conn:
+                            conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
+                            conn.commit()
+                        st.rerun()
                 st.divider()
