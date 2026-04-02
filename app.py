@@ -116,13 +116,16 @@ m7.metric("🗑️ Archived", stats[6])
 
 st.divider()
 
-# --- FILTERING UI ---
+# --- FILTERING & BATCH UI ---
 st.subheader("📋 Job Leads")
-filter_status = st.pills(
-    "Filter by Status:",
-    options=["All", "High Matches (New)", "Pending Tailor (Approved)", "Ready to Apply (Tailored)", "Applied", "Rejected", "Archived"],
-    default="All"
-)
+f_col1, f_col2 = st.columns([4, 1])
+
+with f_col1:
+    filter_status = st.pills(
+        "Filter by Status:",
+        options=["All", "High Matches (New)", "Pending Tailor (Approved)", "Ready to Apply (Tailored)", "Applied", "Rejected", "Archived"],
+        default="All"
+    )
 
 status_map = {
     "High Matches (New)": "new",
@@ -160,22 +163,25 @@ else:
     if df.empty:
         st.info(f"No jobs found for filter: {filter_status}")
     else:
-        # --- BATCH ACTIONS ---
+        # --- BATCH BUTTONS (Top Right) ---
+        with f_col2:
+            batch_archive = st.button("🗑️ Batch Archive", use_container_width=True)
+            batch_delete = st.button("💀 Batch Delete", use_container_width=True)
+
         st.write("---")
-        b_col1, b_col2 = st.columns([1, 4])
-        select_all = b_col1.checkbox("Select All", key="select_all")
+
+        # Select All functionality with session state to ensure it works
+        if "select_all_state" not in st.session_state:
+            st.session_state.select_all_state = False
+
+        def toggle_all():
+            st.session_state.select_all_state = st.session_state.select_all_cb
+            for db_id in df['id']:
+                st.session_state[f"sel_{db_id}"] = st.session_state.select_all_cb
+
+        st.checkbox("Select All Visible", key="select_all_cb", value=st.session_state.select_all_state, on_change=toggle_all)
 
         selected_ids = []
-
-        # Action buttons for batch processing
-        with b_col2:
-            sub_col1, sub_col2, sub_col3, sub_col4 = st.columns(4)
-            batch_approve = sub_col1.button("✅ Batch Approve", help="Approve selected 'new' jobs")
-            batch_reject = sub_col2.button("❌ Batch Reject", help="Reject selected 'new' jobs")
-            batch_archive = sub_col3.button("🗑️ Batch Archive", help="Archive selected jobs")
-            batch_delete = sub_col4.button("💀 Batch Delete", help="Permanently delete selected jobs")
-
-        st.write("---")
 
         # --- JOB LISTING ---
         for index, row in df.iterrows():
@@ -183,13 +189,17 @@ else:
             status = row['status']
             company = row['company']
             
+            # Initialize individual checkbox state if not present
+            if f"sel_{db_id}" not in st.session_state:
+                st.session_state[f"sel_{db_id}"] = st.session_state.select_all_state
+
             with st.container():
                 # Added selection checkbox
                 sel_col, main_col, action_col = st.columns([0.2, 3.8, 1])
                 
                 with sel_col:
-                    is_selected = st.checkbox("", key=f"sel_{db_id}", value=select_all)
-                    if is_selected:
+                    # Use session state for individual checkboxes
+                    if st.checkbox("", key=f"sel_{db_id}"):
                         selected_ids.append(db_id)
 
                 with main_col:
@@ -297,24 +307,6 @@ else:
 
         # --- BATCH LOGIC ---
         if selected_ids:
-            if batch_approve:
-                with engine.connect() as conn:
-                    conn.execute(
-                        text("UPDATE job_leads SET status = 'approved' WHERE id IN :ids AND status = 'new'"),
-                        {"ids": tuple(selected_ids)}
-                    )
-                    conn.commit()
-                st.rerun()
-
-            if batch_reject:
-                with engine.connect() as conn:
-                    conn.execute(
-                        text("UPDATE job_leads SET status = 'rejected' WHERE id IN :ids AND status = 'new'"),
-                        {"ids": tuple(selected_ids)}
-                    )
-                    conn.commit()
-                st.rerun()
-
             if batch_archive:
                 with engine.connect() as conn:
                     conn.execute(
