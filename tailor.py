@@ -77,14 +77,14 @@ def run_tailor():
         my_profile = f.read()
 
     with engine.connect() as conn:
-        query = text("SELECT id, title, company, description FROM job_leads WHERE status = 'approved' LIMIT 5")
+        query = text("SELECT id, job_id, title, company, description FROM job_leads WHERE status = 'approved' LIMIT 5")
         jobs = conn.execute(query).fetchall()
 
         if not jobs:
             print("📭 No approved jobs to tailor.")
             return
 
-        for job_id, title, company, description in jobs:
+        for db_id, job_id, title, company, description in jobs:
             print(f"🧵 Building 'Versatile Expert' application for {title} at {company}...")
 
             # DUAL-THREAT PROMPT: Highlighting Telco scale while maintaining SaaS/Platform versatility
@@ -133,10 +133,11 @@ def run_tailor():
                 )
                 full_cl = cl_resp.choices[0].message.content
                 
-                generate_pdf(f"resumes/{job_id}_Resume.pdf", f"Targeted Resume: {company}", full_resume)
-                generate_pdf(f"resumes/{job_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl)
+                # Use db_id for file naming to be consistent with app.py's expected patterns
+                generate_pdf(f"resumes/{db_id}_Resume.pdf", f"Targeted Resume: {company}", full_resume)
+                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl)
 
-                conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": job_id})
+                conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                 conn.commit()
                 print(f"✅ Application Ready for {company}")
 

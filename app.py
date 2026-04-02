@@ -160,15 +160,39 @@ else:
     if df.empty:
         st.info(f"No jobs found for filter: {filter_status}")
     else:
+        # --- BATCH ACTIONS ---
+        st.write("---")
+        b_col1, b_col2 = st.columns([1, 4])
+        select_all = b_col1.checkbox("Select All", key="select_all")
+
+        selected_ids = []
+
+        # Action buttons for batch processing
+        with b_col2:
+            sub_col1, sub_col2, sub_col3, sub_col4 = st.columns(4)
+            batch_approve = sub_col1.button("✅ Batch Approve", help="Approve selected 'new' jobs")
+            batch_reject = sub_col2.button("❌ Batch Reject", help="Reject selected 'new' jobs")
+            batch_archive = sub_col3.button("🗑️ Batch Archive", help="Archive selected jobs")
+            batch_delete = sub_col4.button("💀 Batch Delete", help="Permanently delete selected jobs")
+
+        st.write("---")
+
+        # --- JOB LISTING ---
         for index, row in df.iterrows():
-            job_id = row['id']
+            db_id = row['id']
             status = row['status']
             company = row['company']
             
             with st.container():
-                col1, col2 = st.columns([4, 1])
+                # Added selection checkbox
+                sel_col, main_col, action_col = st.columns([0.2, 3.8, 1])
                 
-                with col1:
+                with sel_col:
+                    is_selected = st.checkbox("", key=f"sel_{db_id}", value=select_all)
+                    if is_selected:
+                        selected_ids.append(db_id)
+
+                with main_col:
                     st.subheader(f"{row['title']} @ {company}")
 
                     # --- TIMESTAMPS ---
@@ -189,8 +213,8 @@ else:
                         st.info("📂 Tailored documents are ready for download:")
                         d_col1, d_col2 = st.columns(2)
 
-                        resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
-                        cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
+                        resume_path = os.path.join(RESUME_DIR, f"{db_id}_Resume.pdf")
+                        cl_path = os.path.join(RESUME_DIR, f"{db_id}_CoverLetter.pdf")
 
                         if os.path.exists(resume_path):
                             with open(resume_path, "rb") as f:
@@ -199,7 +223,7 @@ else:
                                     data=f,
                                     file_name=f"Resume_{company.replace(' ', '_')}.pdf",
                                     mime="application/pdf",
-                                    key=f"dl_res_{job_id}"
+                                    key=f"dl_res_{db_id}"
                                 )
 
                         if os.path.exists(cl_path):
@@ -209,55 +233,55 @@ else:
                                     data=f,
                                     file_name=f"CoverLetter_{company.replace(' ', '_')}.pdf",
                                     mime="application/pdf",
-                                    key=f"dl_cl_{job_id}"
+                                    key=f"dl_cl_{db_id}"
                                 )
 
-                with col2:
+                with action_col:
                     # 1. Action Buttons based on status
                     if status == 'approved':
                         st.info("🧵 Pending Tailoring (Run tailor.py)")
 
                     if status == 'new':
-                        if st.button("✅ Approve", key=f"app_{job_id}"):
+                        if st.button("✅ Approve", key=f"app_{db_id}"):
                             with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'approved' WHERE id = :id"), {"id": job_id})
+                                conn.execute(text("UPDATE job_leads SET status = 'approved' WHERE id = :id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
-                        if st.button("❌ Reject", key=f"rej_{job_id}"):
+                        if st.button("❌ Reject", key=f"rej_{db_id}"):
                             with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'rejected' WHERE id = :id"), {"id": job_id})
+                                conn.execute(text("UPDATE job_leads SET status = 'rejected' WHERE id = :id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
                     elif status == 'tailored':
-                        if st.button("🚀 Mark Applied", key=f"mark_app_{job_id}"):
+                        if st.button("🚀 Mark Applied", key=f"mark_app_{db_id}"):
                             with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": job_id})
+                                conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
                     elif status == 'applied':
-                        if st.button("↩️ Unmark Applied", key=f"unmark_app_{job_id}"):
+                        if st.button("↩️ Unmark Applied", key=f"unmark_app_{db_id}"):
                             with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'tailored', applied_at = NULL WHERE id = :id"), {"id": job_id})
+                                conn.execute(text("UPDATE job_leads SET status = 'tailored', applied_at = NULL WHERE id = :id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
                     # 2. Secondary Actions (Archive) for tailored/applied jobs
                     if status in ['tailored', 'applied']:
-                        if st.button("🗑️ Archive", key=f"arc_{job_id}"):
+                        if st.button("🗑️ Archive", key=f"arc_{db_id}"):
                             with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
+                                conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
                     # 3. Permanent Deletion for archived and rejected jobs
                     if status in ['archived', 'rejected']:
-                        if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
+                        if st.button("💀 Delete Permanently", key=f"del_{db_id}"):
                             # --- CLEANUP FILES ---
-                            resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
-                            cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
+                            resume_path = os.path.join(RESUME_DIR, f"{db_id}_Resume.pdf")
+                            cl_path = os.path.join(RESUME_DIR, f"{db_id}_CoverLetter.pdf")
 
                             if os.path.exists(resume_path):
                                 os.remove(resume_path)
@@ -266,7 +290,49 @@ else:
 
                             # --- DELETE DB RECORD ---
                             with engine.connect() as conn:
-                                conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
+                                conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
                 st.divider()
+
+        # --- BATCH LOGIC ---
+        if selected_ids:
+            if batch_approve:
+                with engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE job_leads SET status = 'approved' WHERE id IN :ids AND status = 'new'"),
+                        {"ids": tuple(selected_ids)}
+                    )
+                    conn.commit()
+                st.rerun()
+
+            if batch_reject:
+                with engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE job_leads SET status = 'rejected' WHERE id IN :ids AND status = 'new'"),
+                        {"ids": tuple(selected_ids)}
+                    )
+                    conn.commit()
+                st.rerun()
+
+            if batch_archive:
+                with engine.connect() as conn:
+                    conn.execute(
+                        text("UPDATE job_leads SET status = 'archived' WHERE id IN :ids AND status != 'new'"),
+                        {"ids": tuple(selected_ids)}
+                    )
+                    conn.commit()
+                st.rerun()
+
+            if batch_delete:
+                for sid in selected_ids:
+                    # Cleanup files
+                    resume_path = os.path.join(RESUME_DIR, f"{sid}_Resume.pdf")
+                    cl_path = os.path.join(RESUME_DIR, f"{sid}_CoverLetter.pdf")
+                    if os.path.exists(resume_path): os.remove(resume_path)
+                    if os.path.exists(cl_path): os.remove(cl_path)
+
+                with engine.connect() as conn:
+                    conn.execute(text("DELETE FROM job_leads WHERE id IN :ids"), {"ids": tuple(selected_ids)})
+                    conn.commit()
+                st.rerun()
