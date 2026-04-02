@@ -157,106 +157,106 @@ else:
     if df.empty:
         st.info(f"No jobs found for filter: {filter_status}")
     else:
-    for index, row in df.iterrows():
-        job_id = row['id']
-        status = row['status']
-        company = row['company']
-        
-        with st.container():
-            col1, col2 = st.columns([4, 1])
+        for index, row in df.iterrows():
+            job_id = row['id']
+            status = row['status']
+            company = row['company']
             
-            with col1:
-                st.subheader(f"{row['title']} @ {company}")
-
-                # --- TIMESTAMPS ---
-                ts_info = f"Scraped: {row['created_at'].strftime('%Y-%m-%d %H:%M')}"
-                if pd.notnull(row['matched_at']):
-                    ts_info += f" | Matched: {row['matched_at'].strftime('%Y-%m-%d %H:%M')}"
-                if pd.notnull(row['tailored_at']):
-                    ts_info += f" | Tailored: {row['tailored_at'].strftime('%Y-%m-%d %H:%M')}"
-                if pd.notnull(row['applied_at']):
-                    ts_info += f" | Applied: {row['applied_at'].strftime('%Y-%m-%d %H:%M')}"
-
-                st.caption(f"Score: {row['match_score']}% | Status: {status.upper()} | [View Posting]({row['job_url']})")
-                st.caption(ts_info)
-                st.write(f"**AI Insight:** {row['ai_summary']}")
+            with st.container():
+                col1, col2 = st.columns([4, 1])
                 
-                # --- DOWNLOAD SECTION ---
-                if status in ['tailored', 'applied']:
-                    st.info("📂 Tailored documents are ready for download:")
-                    d_col1, d_col2 = st.columns(2)
+                with col1:
+                    st.subheader(f"{row['title']} @ {company}")
+
+                    # --- TIMESTAMPS ---
+                    ts_info = f"Scraped: {row['created_at'].strftime('%Y-%m-%d %H:%M')}"
+                    if pd.notnull(row['matched_at']):
+                        ts_info += f" | Matched: {row['matched_at'].strftime('%Y-%m-%d %H:%M')}"
+                    if pd.notnull(row['tailored_at']):
+                        ts_info += f" | Tailored: {row['tailored_at'].strftime('%Y-%m-%d %H:%M')}"
+                    if pd.notnull(row['applied_at']):
+                        ts_info += f" | Applied: {row['applied_at'].strftime('%Y-%m-%d %H:%M')}"
+
+                    st.caption(f"Score: {row['match_score']}% | Status: {status.upper()} | [View Posting]({row['job_url']})")
+                    st.caption(ts_info)
+                    st.write(f"**AI Insight:** {row['ai_summary']}")
                     
-                    resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
-                    cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
+                    # --- DOWNLOAD SECTION ---
+                    if status in ['tailored', 'applied']:
+                        st.info("📂 Tailored documents are ready for download:")
+                        d_col1, d_col2 = st.columns(2)
 
-                    if os.path.exists(resume_path):
-                        with open(resume_path, "rb") as f:
-                            d_col1.download_button(
-                                label="📥 Download Resume",
-                                data=f,
-                                file_name=f"Resume_{company.replace(' ', '_')}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_res_{job_id}"
-                            )
-                    
-                    if os.path.exists(cl_path):
-                        with open(cl_path, "rb") as f:
-                            d_col2.download_button(
-                                label="📥 Download Cover Letter",
-                                data=f,
-                                file_name=f"CoverLetter_{company.replace(' ', '_')}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_cl_{job_id}"
-                            )
-            
-            with col2:
-                # 1. Action Buttons based on status
-                if status == 'approved':
-                    st.info("🧵 Pending Tailoring (Run tailor.py)")
-
-                if status == 'new':
-                    if st.button("✅ Approve", key=f"app_{job_id}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status = 'approved' WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
-                    
-                    if st.button("❌ Reject", key=f"rej_{job_id}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status = 'rejected' WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
-
-                elif status == 'tailored':
-                    if st.button("🚀 Mark Applied", key=f"mark_app_{job_id}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
-
-                # 2. Secondary Actions (Archive) for non-new jobs
-                if status in ['tailored', 'applied']:
-                    if st.button("🗑️ Archive", key=f"arc_{job_id}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
-
-                # 3. Permanent Deletion for archived jobs
-                if status == 'archived':
-                    if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
-                        # --- CLEANUP FILES ---
                         resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
                         cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
 
                         if os.path.exists(resume_path):
-                            os.remove(resume_path)
-                        if os.path.exists(cl_path):
-                            os.remove(cl_path)
+                            with open(resume_path, "rb") as f:
+                                d_col1.download_button(
+                                    label="📥 Download Resume",
+                                    data=f,
+                                    file_name=f"Resume_{company.replace(' ', '_')}.pdf",
+                                    mime="application/pdf",
+                                    key=f"dl_res_{job_id}"
+                                )
 
-                        # --- DELETE DB RECORD ---
-                        with engine.connect() as conn:
-                            conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
-            st.divider()
+                        if os.path.exists(cl_path):
+                            with open(cl_path, "rb") as f:
+                                d_col2.download_button(
+                                    label="📥 Download Cover Letter",
+                                    data=f,
+                                    file_name=f"CoverLetter_{company.replace(' ', '_')}.pdf",
+                                    mime="application/pdf",
+                                    key=f"dl_cl_{job_id}"
+                                )
+
+                with col2:
+                    # 1. Action Buttons based on status
+                    if status == 'approved':
+                        st.info("🧵 Pending Tailoring (Run tailor.py)")
+
+                    if status == 'new':
+                        if st.button("✅ Approve", key=f"app_{job_id}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'approved' WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
+
+                        if st.button("❌ Reject", key=f"rej_{job_id}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'rejected' WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
+
+                    elif status == 'tailored':
+                        if st.button("🚀 Mark Applied", key=f"mark_app_{job_id}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
+
+                    # 2. Secondary Actions (Archive) for non-new jobs
+                    if status in ['tailored', 'applied']:
+                        if st.button("🗑️ Archive", key=f"arc_{job_id}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
+
+                    # 3. Permanent Deletion for archived jobs
+                    if status == 'archived':
+                        if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
+                            # --- CLEANUP FILES ---
+                            resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
+                            cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
+
+                            if os.path.exists(resume_path):
+                                os.remove(resume_path)
+                            if os.path.exists(cl_path):
+                                os.remove(cl_path)
+
+                            # --- DELETE DB RECORD ---
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
+                st.divider()
