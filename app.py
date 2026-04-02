@@ -155,7 +155,7 @@ else:
         df = df[df['status'] == status_map[filter_status]]
     elif filter_status == "All":
         # By default, only show relevant jobs unless explicitly filtered
-        df = df[((df['status'] == 'new') & (df['match_score'] >= 70)) | (df['status'].isin(['tailored', 'applied']))]
+        df = df[((df['status'] == 'new') & (df['match_score'] >= 70)) | (df['status'].isin(['approved', 'tailored', 'applied']))]
 
     if df.empty:
         st.info(f"No jobs found for filter: {filter_status}")
@@ -237,36 +237,36 @@ else:
                                 conn.commit()
                             st.rerun()
 
-                elif status == 'applied':
-                    if st.button("↩️ Unmark Applied", key=f"unmark_app_{job_id}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status = 'tailored', applied_at = NULL WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
+                    elif status == 'applied':
+                        if st.button("↩️ Unmark Applied", key=f"unmark_app_{job_id}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'tailored', applied_at = NULL WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
 
-                # 2. Secondary Actions (Archive) for tailored/applied jobs
-                if status in ['tailored', 'applied']:
-                    if st.button("🗑️ Archive", key=f"arc_{job_id}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
+                    # 2. Secondary Actions (Archive) for tailored/applied jobs
+                    if status in ['tailored', 'applied']:
+                        if st.button("🗑️ Archive", key=f"arc_{job_id}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
 
-                # 3. Permanent Deletion for archived and rejected jobs
-                if status in ['archived', 'rejected']:
-                    if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
-                        # --- CLEANUP FILES ---
-                        resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
-                        cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
+                    # 3. Permanent Deletion for archived and rejected jobs
+                    if status in ['archived', 'rejected']:
+                        if st.button("💀 Delete Permanently", key=f"del_{job_id}"):
+                            # --- CLEANUP FILES ---
+                            resume_path = os.path.join(RESUME_DIR, f"{job_id}_Resume.pdf")
+                            cl_path = os.path.join(RESUME_DIR, f"{job_id}_CoverLetter.pdf")
 
-                        if os.path.exists(resume_path):
-                            os.remove(resume_path)
-                        if os.path.exists(cl_path):
-                            os.remove(cl_path)
+                            if os.path.exists(resume_path):
+                                os.remove(resume_path)
+                            if os.path.exists(cl_path):
+                                os.remove(cl_path)
 
-                        # --- DELETE DB RECORD ---
-                        with engine.connect() as conn:
-                            conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
-                            conn.commit()
-                        st.rerun()
+                            # --- DELETE DB RECORD ---
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": job_id})
+                                conn.commit()
+                            st.rerun()
                 st.divider()
