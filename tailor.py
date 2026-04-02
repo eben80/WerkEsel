@@ -45,11 +45,12 @@ def generate_pdf(filename, title, content):
     pdf.line(10, pdf.get_y() + 2, 205, pdf.get_y() + 2)
     pdf.ln(8)
 
-    # 2. DOCUMENT TITLE (The "Targeted Role")
-    pdf.set_font(body_font, "B", 11)
-    pdf.set_text_color(60, 60, 60)
-    pdf.cell(0, 10, title.upper(), align='L', new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0) 
+    # 2. DOCUMENT TITLE (The "Targeted Role") - Skip if empty
+    if title:
+        pdf.set_font(body_font, "B", 11)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(0, 10, title.upper(), align='L', new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
     
     # 3. FINAL CLEANING (Removing Markdown and HTML)
     clean_text = str(content)
@@ -126,7 +127,8 @@ def run_tailor():
                 full_cl = result.get("cover_letter", "")
                 
                 # Use db_id for file naming to be consistent with app.py's expected patterns
-                generate_pdf(f"resumes/{db_id}_Resume.pdf", f"Targeted Resume: {company}", full_resume)
+                # Pass empty title for Resume as requested
+                generate_pdf(f"resumes/{db_id}_Resume.pdf", "", full_resume)
                 generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl)
 
                 conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})

@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, bindparam
 import pandas as pd
 import requests
 from importlib import metadata
@@ -322,7 +322,7 @@ else:
             if batch_archive:
                 with engine.connect() as conn:
                     conn.execute(
-                        text("UPDATE job_leads SET status = 'archived' WHERE id IN :ids AND status != 'new'").bindparams(st.bindparam("ids", expanding=True)),
+                        text("UPDATE job_leads SET status = 'archived' WHERE id IN :ids AND status != 'new'").bindparams(bindparam("ids", expanding=True)),
                         {"ids": selected_ids}
                     )
                     conn.commit()
@@ -338,7 +338,7 @@ else:
 
                 with engine.connect() as conn:
                     conn.execute(
-                        text("DELETE FROM job_leads WHERE id IN :ids").bindparams(st.bindparam("ids", expanding=True)),
+                        text("DELETE FROM job_leads WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
                         {"ids": selected_ids}
                     )
                     conn.commit()
