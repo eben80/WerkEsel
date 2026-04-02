@@ -33,11 +33,12 @@ def setup_db():
                 description TEXT,
                 is_remote BOOLEAN DEFAULT FALSE,
                 date_posted DATE,
-                status ENUM('new', 'approved', 'rejected', 'applied') DEFAULT 'new',
+                status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new',
                 match_score INT DEFAULT NULL,
                 ai_summary TEXT DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 matched_at TIMESTAMP DEFAULT NULL,
+                tailored_at TIMESTAMP DEFAULT NULL,
                 applied_at TIMESTAMP DEFAULT NULL
             )
         """))
@@ -47,7 +48,16 @@ def setup_db():
         except Exception:
             pass
         try:
+            conn.execute(text("ALTER TABLE job_leads ADD COLUMN tailored_at TIMESTAMP DEFAULT NULL"))
+        except Exception:
+            pass
+        try:
             conn.execute(text("ALTER TABLE job_leads ADD COLUMN applied_at TIMESTAMP DEFAULT NULL"))
+        except Exception:
+            pass
+        # Update ENUM for status column
+        try:
+            conn.execute(text("ALTER TABLE job_leads MODIFY COLUMN status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new'"))
         except Exception:
             pass
         conn.commit()

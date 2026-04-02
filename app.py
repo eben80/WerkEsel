@@ -3,6 +3,23 @@ import streamlit as st
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import pandas as pd
+import requests
+import pkg_resources
+
+# --- VERSION CHECK ---
+def check_jobspy_update():
+    try:
+        package_name = "python-jobspy"
+        current_version = pkg_resources.get_distribution(package_name).version
+
+        response = requests.get(f"https://pypi.org/pypi/{package_name}/json", timeout=2)
+        latest_version = response.json()["info"]["version"]
+
+        if current_version != latest_version:
+            st.warning(f"🔔 Update available for **{package_name}**: {current_version} ⮕ {latest_version}")
+            st.code(f"pip install --upgrade {package_name}")
+    except Exception:
+        pass # Silently fail if check fails
 
 # --- CONFIG ---
 # Load the variables from the .env file
@@ -21,6 +38,8 @@ st.set_page_config(page_title="WerkEsel Job Board", layout="wide")
 
 st.title("🚜 WerkEsel: PM Job Matcher")
 st.write("Reviewing jobs for **tefinitely.com**")
+
+check_jobspy_update()
 # --- NEW: STATUS DASHBOARD ---
 with engine.connect() as conn:
     stats_query = text("""
@@ -28,7 +47,7 @@ with engine.connect() as conn:
             COUNT(CASE WHEN status = 'new' AND match_score IS NULL THEN 1 END) as unscored,
             COUNT(CASE WHEN status = 'new' AND match_score >= 70 THEN 1 END) as high_matches,
             COUNT(CASE WHEN status = 'approved' THEN 1 END) as pending_tailor,
-            COUNT(CASE WHEN status = 'applied' THEN 1 END) as ready_to_download
+            COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply
         FROM job_leads
     """)
     stats = conn.execute(stats_query).fetchone()
@@ -42,12 +61,12 @@ m4.metric("✅ Ready to Apply", stats[3])
 
 st.divider()
 # --- END STATUS DASHBOARD ---
-# 1. Fetch Jobs: Show 'new' high-scores AND 'applied' (tailored) jobs
+# 1. Fetch Jobs: Show 'new' high-scores, 'tailored' AND 'applied' jobs
 query = text("""
-    SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, applied_at
+    SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
     FROM job_leads 
-    WHERE (match_score >= 70 AND status = 'new') OR status = 'applied'
-    ORDER BY status DESC, match_score DESC
+    WHERE (match_score >= 70 AND status = 'new') OR status IN ('tailored', 'applied')
+    ORDER BY FIELD(status, 'tailored', 'applied', 'new'), match_score DESC
 """)
 
 with engine.connect() as conn:
@@ -71,15 +90,17 @@ else:
                 ts_info = f"Scraped: {row['created_at'].strftime('%Y-%m-%d %H:%M')}"
                 if pd.notnull(row['matched_at']):
                     ts_info += f" | Matched: {row['matched_at'].strftime('%Y-%m-%d %H:%M')}"
+                if pd.notnull(row['tailored_at']):
+                    ts_info += f" | Tailored: {row['tailored_at'].strftime('%Y-%m-%d %H:%M')}"
                 if pd.notnull(row['applied_at']):
-                    ts_info += f" | Tailored: {row['applied_at'].strftime('%Y-%m-%d %H:%M')}"
+                    ts_info += f" | Applied: {row['applied_at'].strftime('%Y-%m-%d %H:%M')}"
 
                 st.caption(f"Score: {row['match_score']}% | Status: {status.upper()} | [View Posting]({row['job_url']})")
                 st.caption(ts_info)
                 st.write(f"**AI Insight:** {row['ai_summary']}")
                 
                 # --- DOWNLOAD SECTION ---
-                if status == 'applied':
+                if status in ['tailored', 'applied']:
                     st.info("📂 Tailored documents are ready for download:")
                     d_col1, d_col2 = st.columns(2)
                     
@@ -107,7 +128,7 @@ else:
                             )
             
             with col2:
-                # Only show Approve/Reject if it's still in 'new' status
+                # 1. Action Buttons based on status
                 if status == 'new':
                     if st.button("✅ Approve", key=f"app_{job_id}"):
                         with engine.connect() as conn:
@@ -120,8 +141,16 @@ else:
                             conn.execute(text("UPDATE job_leads SET status = 'rejected' WHERE id = :id"), {"id": job_id})
                             conn.commit()
                         st.rerun()
-                else:
-                    # Option to archive/reset if you want to re-run it later
+
+                elif status == 'tailored':
+                    if st.button("🚀 Mark Applied", key=f"mark_app_{job_id}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": job_id})
+                            conn.commit()
+                        st.rerun()
+
+                # 2. Secondary Actions (Archive) for non-new jobs
+                if status in ['tailored', 'applied']:
                     if st.button("🗑️ Archive", key=f"arc_{job_id}"):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": job_id})
