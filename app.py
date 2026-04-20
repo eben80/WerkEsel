@@ -34,18 +34,34 @@ if "profile_id" not in st.session_state:
 def login_page():
     st.title("🫏 WerkEsel: Login")
 
+    # Generate google_credentials.json if needed
+    creds_path = "google_credentials.json"
+    if not os.path.exists(creds_path) and os.getenv("GOOGLE_CLIENT_ID"):
+        import json
+        creds = {
+            "web": {
+                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                "project_id": os.getenv("GOOGLE_PROJECT_ID", "werkesel"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "redirect_uris": [os.getenv("REDIRECT_URI", "http://localhost:8501")]
+            }
+        }
+        with open(creds_path, "w") as f:
+            json.dump(creds, f)
+
     # Google Auth Setup
     authenticator = Authenticate(
-        secret_key=os.getenv("SECRET_KEY", "super_secret_key"),
+        secret_credentials_path=creds_path,
         cookie_name="werkesel_auth",
-        cookie_key="werkesel_cookie_key",
-        client_id=os.getenv("GOOGLE_CLIENT_ID"),
-        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+        cookie_key=os.getenv("SECRET_KEY", "werkesel_cookie_key"),
         redirect_uri=os.getenv("REDIRECT_URI", "http://localhost:8501")
     )
 
     # Check if user is already authenticated via Google
-    authenticator.check_authenticator()
+    authenticator.check_authentification()
     if st.session_state.get('connected'):
         user_info = {
             'email': st.session_state['user_info'].get('email'),

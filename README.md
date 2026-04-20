@@ -46,6 +46,7 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret
 # Google OAuth
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_PROJECT_ID=your_google_project_id
 REDIRECT_URI=http://localhost:8501
 SECRET_KEY=your_super_secret_key
 ```
