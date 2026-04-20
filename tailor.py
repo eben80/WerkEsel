@@ -1,22 +1,15 @@
 import os
 import json
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from openai import OpenAI
 from fpdf import FPDF
+from db_utils import engine
 
 # --- CONFIG ---
 # Load the variables from the .env file
 load_dotenv()
-# Build the URL dynamically
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-
-DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY")) 
-engine = create_engine(DB_URL)
 
 os.makedirs("resumes", exist_ok=True)
 
@@ -84,23 +77,31 @@ def generate_pdf(filename, title, content, user_info):
     pdf.multi_cell(0, 6, text=clean_text) 
     
     pdf.output(filename)
-def run_tailor():
+def run_tailor(profile_id=None):
+    """Runs the tailor for approved jobs. Optionally filtered by profile_id."""
     with engine.connect() as conn:
-        query = text("""
+        sql = """
             SELECT jl.id, jl.job_id, jl.title, jl.company, jl.description, sp.profile_text,
                    u.name, u.email, u.phone, u.location, u.linkedin_url, u.website_url, u.header_template
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
             JOIN users u ON sp.user_id = u.id
             WHERE jl.status = 'approved'
-            LIMIT 5
-        """)
-        jobs = conn.execute(query).fetchall()
+        """
+        params = {}
+        if profile_id:
+            sql += " AND jl.profile_id = :pid"
+            params["pid"] = profile_id
+
+        sql += " LIMIT 5"
+
+        jobs = conn.execute(text(sql), params).fetchall()
 
         if not jobs:
             print("📭 No approved jobs to tailor.")
-            return
+            return 0
 
+        tailored_count = 0
         for job in jobs:
             db_id, job_id, title, company, description, my_profile, u_name, u_email, u_phone, u_loc, u_li, u_web, u_header = job
 
@@ -157,9 +158,12 @@ def run_tailor():
                 conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                 conn.commit()
                 print(f"✅ Application Ready for {company}")
+                tailored_count += 1
 
             except Exception as e:
                 print(f"❌ Failed to tailor {company}: {e}")
+
+    return tailored_count
 
 if __name__ == "__main__":
     run_tailor()

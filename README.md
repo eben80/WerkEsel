@@ -45,6 +45,9 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+REDIRECT_URI=http://localhost:8501
+SECRET_KEY=your_super_secret_key
 ```
 
 ### 3. Installation
@@ -66,8 +69,14 @@ mysql -u your_user -p your_db_name < migration.sql
 streamlit run app.py
 ```
 
+**Manual Execution:**
+The "Jobs" tab in the dashboard provides manual triggers to:
+- **Run Scout Now**: Find new jobs for the selected profile.
+- **Run Matcher Now**: Analyze matches for unscored jobs.
+- **Run Tailor Now**: Generate application PDFs for approved jobs.
+
 **Global Processing Cycle (Server-Side):**
-To run the scout, matcher, and tailor for all active profiles, execute:
+To run the scout, matcher, and tailor for all active profiles (e.g., via cron), execute:
 ```bash
 python run_all.py
 ```
@@ -87,8 +96,8 @@ bash process.sh
 4. **Login**: Once verified, the user can log in.
 
 ### Google Login
-- The system uses Google ID Tokens for secure authentication.
-- In the current Streamlit implementation, users can paste a JWT token for verification (Standard Streamlit OAuth flow can be integrated via `streamlit-google-auth`).
+- Integrated via `streamlit-google-auth`.
+- Requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `REDIRECT_URI` in `.env`.
 
 ---
 

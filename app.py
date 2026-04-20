@@ -2,8 +2,12 @@ import streamlit as st
 import os
 import json
 import pandas as pd
-from sqlalchemy import create_engine, text, bindparam
+import scout
+import matcher
+import tailor
+from sqlalchemy import text, bindparam
 from dotenv import load_dotenv
+from streamlit_google_auth import Authenticate
 
 # --- CONFIG ---
 load_dotenv()
@@ -11,130 +15,10 @@ load_dotenv()
 import auth
 from importlib import metadata
 import requests
+from db_utils import engine, setup_db
 
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
-engine = create_engine(DB_URL)
 RESUME_DIR = "resumes"
 os.makedirs(RESUME_DIR, exist_ok=True)
-
-# --- DB MIGRATION ---
-def setup_db():
-    """Ensures tables exist and have all necessary columns."""
-    with engine.connect() as conn:
-        # Users Table
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                email VARCHAR(255) UNIQUE NOT NULL,
-                password_hash VARCHAR(255),
-                google_id VARCHAR(255) UNIQUE,
-                name VARCHAR(255),
-                role ENUM('admin', 'user') DEFAULT 'user',
-                is_verified BOOLEAN DEFAULT FALSE,
-                verification_code VARCHAR(10),
-                phone VARCHAR(50),
-                location VARCHAR(255),
-                linkedin_url VARCHAR(255),
-                website_url VARCHAR(255),
-                header_template TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
-
-        # Search Profiles Table
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS search_profiles (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                user_id INT NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                profile_text TEXT,
-                search_params JSON,
-                is_active BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """))
-
-        # Job Leads Table
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS job_leads (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                profile_id INT,
-                job_id VARCHAR(255),
-                site VARCHAR(50),
-                title VARCHAR(255),
-                company VARCHAR(255),
-                location VARCHAR(255),
-                job_url TEXT,
-                description TEXT,
-                is_remote BOOLEAN DEFAULT FALSE,
-                date_posted DATE,
-                status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new',
-                match_score INT DEFAULT NULL,
-                ai_summary TEXT DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                matched_at TIMESTAMP DEFAULT NULL,
-                tailored_at TIMESTAMP DEFAULT NULL,
-                applied_at TIMESTAMP DEFAULT NULL,
-                CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE,
-                UNIQUE KEY unique_job_per_profile (job_id, profile_id)
-            )
-        """))
-
-        # Migration for existing users
-        try:
-            conn.execute(text("SELECT verification_code FROM users LIMIT 1"))
-        except Exception:
-            try:
-                conn.execute(text("ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) AFTER is_verified"))
-            except Exception:
-                pass
-
-        for col in [("phone", "VARCHAR(50)"), ("location", "VARCHAR(255)"), ("linkedin_url", "VARCHAR(255)"), ("website_url", "VARCHAR(255)"), ("header_template", "TEXT")]:
-            try:
-                conn.execute(text(f"SELECT {col[0]} FROM users LIMIT 1"))
-            except Exception:
-                try:
-                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col[0]} {col[1]}"))
-                except Exception:
-                    pass
-
-        # Migration for existing job_leads
-        try:
-            # 1. Add profile_id if it doesn't exist
-            conn.execute(text("SELECT profile_id FROM job_leads LIMIT 1"))
-        except Exception:
-            try:
-                conn.execute(text("ALTER TABLE job_leads ADD COLUMN profile_id INT AFTER id"))
-                print("Added profile_id column to job_leads.")
-            except Exception as e:
-                print(f"Error adding profile_id: {e}")
-
-        try:
-            # 2. Add foreign key if it doesn't exist
-            conn.execute(text("ALTER TABLE job_leads ADD CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE"))
-            print("Added foreign key constraint fk_profile.")
-        except Exception:
-            pass # Probably already exists
-
-        try:
-            # 3. Update Unique Key
-            conn.execute(text("ALTER TABLE job_leads DROP INDEX job_id"))
-            print("Dropped old unique index job_id.")
-        except Exception:
-            pass
-
-        try:
-            conn.execute(text("ALTER TABLE job_leads ADD UNIQUE KEY unique_job_per_profile (job_id, profile_id)"))
-            print("Added unique key unique_job_per_profile.")
-        except Exception:
-            pass
-
-        conn.commit()
 
 setup_db()
 
@@ -149,6 +33,28 @@ if "profile_id" not in st.session_state:
 # --- AUTH UI ---
 def login_page():
     st.title("🫏 WerkEsel: Login")
+
+    # Google Auth Setup
+    authenticator = Authenticate(
+        secret_key=os.getenv("SECRET_KEY", "super_secret_key"),
+        cookie_name="werkesel_auth",
+        cookie_key="werkesel_cookie_key",
+        client_id=os.getenv("GOOGLE_CLIENT_ID"),
+        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+        redirect_uri=os.getenv("REDIRECT_URI", "http://localhost:8501")
+    )
+
+    # Check if user is already authenticated via Google
+    authenticator.check_authenticator()
+    if st.session_state.get('connected'):
+        user_info = {
+            'email': st.session_state['user_info'].get('email'),
+            'sub': st.session_state['user_info'].get('sub'),
+            'name': st.session_state['user_info'].get('name')
+        }
+        user = auth.get_or_create_google_user(engine, user_info)
+        st.session_state.user = user
+        st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["Login", "Sign Up", "Verify Email", "Google Login"])
 
@@ -187,18 +93,8 @@ def login_page():
                 st.error("Invalid email or verification code.")
 
     with tab4:
-        st.write("Google Login integration placeholder.")
-        # In a real app, you'd use a Google Login button that returns a JWT token
-        # For this demo, let's assume we get a token from a frontend component
-        token = st.text_input("Paste Google JWT Token (Demo purposes)")
-        if st.button("Login with Google"):
-            id_info = auth.verify_google_token(token)
-            if id_info:
-                user = auth.get_or_create_google_user(engine, id_info)
-                st.session_state.user = user
-                st.rerun()
-            else:
-                st.error("Invalid Google Token.")
+        st.write("Sign in with your Google account to continue.")
+        authenticator.login()
 
 # --- MAIN APP ---
 def main():
@@ -258,57 +154,115 @@ def show_profiles():
         profiles = conn.execute(text("SELECT id, name, is_active, profile_text, search_params FROM search_profiles WHERE user_id = :u"), {"u": user_id}).fetchall()
 
     for p in profiles:
-        with st.expander(f"Profile: {p[1]} {'(Active)' if p[2] else '(Inactive)'}"):
-            new_name = st.text_input("Name", value=p[1], key=f"name_{p[0]}")
-            new_text = st.text_area("Profile Text", value=p[3], key=f"text_{p[0]}")
-            params_str = json.dumps(p[4], indent=2) if isinstance(p[4], (dict, list)) else p[4]
-            new_params = st.text_area("Search Params (JSON)", value=params_str, key=f"params_{p[0]}")
-            is_active = st.checkbox("Active", value=p[2], key=f"active_{p[0]}")
+        p_id, p_name, p_active, p_text, p_params = p
+        # Handle JSON or dict
+        params = p_params if isinstance(p_params, list) else json.loads(p_params or "[]")
+        # For simplicity in UI, we'll edit the first search query in the list
+        main_q = params[0] if params else {}
 
-            if st.button("Update Profile", key=f"up_{p[0]}"):
-                try:
-                    params_json = json.loads(new_params)
-                    with engine.connect() as conn:
-                        conn.execute(text("UPDATE search_profiles SET name=:n, profile_text=:t, search_params=:p, is_active=:a WHERE id=:id"),
-                                     {"n": new_name, "t": new_text, "p": json.dumps(params_json), "a": is_active, "id": p[0]})
-                        conn.commit()
-                    st.success("Profile updated!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        with st.expander(f"Profile: {p_name} {'(Active)' if p_active else '(Inactive)'}"):
+            new_name = st.text_input("Name", value=p_name, key=f"name_{p_id}")
+            new_text = st.text_area("Profile Text (Your Experience)", value=p_text, key=f"text_{p_id}", height=200)
+
+            st.subheader("Search Parameters")
+            q_term = st.text_input("Search Term", value=main_q.get('search_term', 'Product Manager'), key=f"term_{p_id}")
+            q_loc = st.text_input("Location", value=main_q.get('location', 'Toronto, ON'), key=f"loc_{p_id}")
+            q_remote = st.checkbox("Remote Only", value=main_q.get('is_remote', False), key=f"rem_{p_id}")
+
+            col1, col2, col3 = st.columns(3)
+            q_wanted = col1.number_input("Results Wanted", value=main_q.get('results_wanted', 20), step=1, key=f"want_{p_id}")
+            q_hours = col2.number_input("Hours Old", value=main_q.get('hours_old', 24), step=1, key=f"hours_{p_id}")
+            q_country = col3.text_input("Country (Indeed)", value=main_q.get('country_indeed', 'canada'), key=f"country_{p_id}")
+
+            q_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor"], default=main_q.get('sites', ["linkedin", "indeed", "glassdoor"]), key=f"sites_{p_id}")
+
+            is_active = st.checkbox("Active", value=p_active, key=f"active_{p_id}")
+
+            if st.button("Update Profile", key=f"up_{p_id}"):
+                updated_params = [{
+                    "search_term": q_term,
+                    "location": q_loc,
+                    "is_remote": q_remote,
+                    "results_wanted": q_wanted,
+                    "hours_old": q_hours,
+                    "country_indeed": q_country,
+                    "sites": q_sites
+                }]
+                with engine.connect() as conn:
+                    conn.execute(text("UPDATE search_profiles SET name=:n, profile_text=:t, search_params=:p, is_active=:a WHERE id=:id"),
+                                 {"n": new_name, "t": new_text, "p": json.dumps(updated_params), "a": is_active, "id": p_id})
+                    conn.commit()
+                st.success("Profile updated!")
+                st.rerun()
 
     st.subheader("Add New Profile")
-    with st.form("new_profile"):
-        n_name = st.text_input("Profile Name")
-        n_text = st.text_area("Profile Text (Your Bio/Experience)")
-        n_params = st.text_area("Search Params (JSON)", value='[{"search_term": "Product Manager", "location": "Toronto, ON", "is_remote": false, "sites": ["linkedin", "indeed", "glassdoor"]}]')
-        if st.form_submit_button("Create Profile"):
-            try:
-                p_json = json.loads(n_params)
-                with engine.connect() as conn:
-                    conn.execute(text("INSERT INTO search_profiles (user_id, name, profile_text, search_params) VALUES (:u, :n, :t, :p)"),
-                                 {"u": user_id, "n": n_name, "t": n_text, "p": json.dumps(p_json)})
-                    conn.commit()
-                st.success("Profile created!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
+    with st.container(border=True):
+        n_name = st.text_input("Profile Name", key="new_p_name")
+        n_text = st.text_area("Profile Text (Your Bio/Experience)", key="new_p_text")
+
+        st.subheader("Default Search Query")
+        c1, c2 = st.columns(2)
+        n_term = c1.text_input("Search Term", value="Product Manager", key="new_p_term")
+        n_loc = c2.text_input("Location", value="Toronto, ON", key="new_p_loc")
+        n_remote = st.checkbox("Remote Only", value=False, key="new_p_remote")
+        n_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor"], default=["linkedin", "indeed", "glassdoor"], key="new_p_sites")
+
+        if st.button("Create Profile"):
+            n_params = [{
+                "search_term": n_term,
+                "location": n_loc,
+                "is_remote": n_remote,
+                "results_wanted": 20,
+                "hours_old": 24,
+                "country_indeed": "canada",
+                "sites": n_sites
+            }]
+            with engine.connect() as conn:
+                conn.execute(text("INSERT INTO search_profiles (user_id, name, profile_text, search_params) VALUES (:u, :n, :t, :p)"),
+                             {"u": user_id, "n": n_name, "t": n_text, "p": json.dumps(n_params)})
+                conn.commit()
+            st.success("Profile created!")
+            st.rerun()
 
 def show_jobs():
     st.title("📋 Job Leads")
     user_id = st.session_state.user['id']
 
     with engine.connect() as conn:
-        profiles = conn.execute(text("SELECT id, name FROM search_profiles WHERE user_id = :u"), {"u": user_id}).fetchall()
+        profiles = conn.execute(text("SELECT id, name, search_params FROM search_profiles WHERE user_id = :u"), {"u": user_id}).fetchall()
 
     if not profiles:
         st.warning("Please create a search profile first.")
         return
 
-    profile_options = {p[1]: p[0] for p in profiles}
-    selected_profile_name = st.selectbox("Select Profile", list(profile_options.keys()))
-    profile_id = profile_options[selected_profile_name]
+    profile_data = {p[1]: {"id": p[0], "params": p[2]} for p in profiles}
+    selected_profile_name = st.selectbox("Select Profile", list(profile_data.keys()))
+    profile_id = profile_data[selected_profile_name]["id"]
+    profile_params = profile_data[selected_profile_name]["params"]
     st.session_state.profile_id = profile_id
+
+    # --- MANUAL TRIGGERS ---
+    t1, t2, t3 = st.columns(3)
+    if t1.button("🔍 Run Scout Now", use_container_width=True):
+        with st.spinner("Scouting for new jobs..."):
+            params = profile_params if isinstance(profile_params, list) else json.loads(profile_params or "[]")
+            new_count = scout.run_scout_for_profile(profile_id, selected_profile_name, params)
+            st.success(f"Scout complete! Added {new_count} new entries.")
+            st.rerun()
+
+    if t2.button("🧠 Run Matcher Now", use_container_width=True):
+        with st.spinner("Analyzing matches with OpenAI..."):
+            scored = matcher.run_matcher(profile_id=profile_id)
+            st.success(f"Matcher complete! Scored {scored} jobs.")
+            st.rerun()
+
+    if t3.button("🧵 Run Tailor Now", use_container_width=True):
+        with st.spinner("Generating tailored PDFs..."):
+            tailored = tailor.run_tailor(profile_id=profile_id)
+            st.success(f"Tailor complete! Generated {tailored} applications.")
+            st.rerun()
+
+    st.divider()
 
     # Filtering
     filter_status = st.pills("Filter Status:", ["All", "High Matches", "Approved", "Tailored", "Applied", "Rejected", "Archived"], default="All")

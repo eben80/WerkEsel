@@ -42,15 +42,6 @@ def send_verification_email(email, name, code):
         return False
     return True
 
-def verify_google_token(token):
-    try:
-        # CLIENT_ID should be in .env
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
-        return idinfo
-    except ValueError:
-        return None
-
 def login_user(engine, email, password):
     with engine.connect() as conn:
         result = conn.execute(text("SELECT id, email, password_hash, name, role, is_verified FROM users WHERE email = :email"), {"email": email}).fetchone()

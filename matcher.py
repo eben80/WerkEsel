@@ -1,40 +1,41 @@
 import os
 import json
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from openai import OpenAI
+from db_utils import engine
 
 # --- CONFIG ---
 # Load the variables from the .env file
 load_dotenv()
-# Build the URL dynamically
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-
-DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-engine = create_engine(DB_URL)
 
-def run_matcher():
+def run_matcher(profile_id=None):
+    """Runs the matcher for new jobs. Optionally filtered by profile_id."""
     with engine.connect() as conn:
         # We only want jobs that have a description to read
-        query = text("""
+        sql = """
             SELECT jl.id, jl.title, jl.company, jl.description, sp.profile_text
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
             WHERE jl.match_score IS NULL
             AND jl.description IS NOT NULL
-            LIMIT 20
-        """)
-        jobs = conn.execute(query).fetchall()
+        """
+        params = {}
+        if profile_id:
+            sql += " AND jl.profile_id = :pid"
+            params["pid"] = profile_id
+
+        sql += " LIMIT 20"
+
+        jobs = conn.execute(text(sql), params).fetchall()
 
     if not jobs:
         print("🙌 No new valid jobs to match.")
-        return
+        return 0
 
     print(f"🧠 Processing {len(jobs)} jobs with OpenAI...")
+    scored_count = 0
 
     for job in jobs:
         db_id, title, company, description, profile_text = job
@@ -75,6 +76,7 @@ def run_matcher():
                 )
                 conn.commit()
             print(f"✅ Scored {title}: {result.get('score')}%")
+            scored_count += 1
 
         except Exception as e:
             print(f"❌ Error scoring {title}: {e}")
@@ -82,6 +84,8 @@ def run_matcher():
             with engine.connect() as conn:
                 conn.execute(text("UPDATE job_leads SET match_score = 0 WHERE id = :id"), {"id": db_id})
                 conn.commit()
+
+    return scored_count
 
 if __name__ == "__main__":
     run_matcher()

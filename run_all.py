@@ -1,10 +1,11 @@
 import scout
 import matcher
 import tailor
+from db_utils import setup_db
 
 def main():
     print("🌟 WerkEsel Global Workflow Starting...")
-    scout.setup_db()
+    setup_db()
 
     # 1. Scout all active profiles
     print("\n--- Phase 1: Scouting ---")
