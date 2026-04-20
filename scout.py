@@ -31,7 +31,9 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
         sites = query.get('sites', ["linkedin", "indeed", "glassdoor"])
 
         loc_label = location if not is_remote else f"Remote ({country_indeed})"
-        print(f"🔍 Searching for '{search_term}' in {loc_label} using sites {sites}...")
+        print(f"🔍 Searching for '{search_term}' in {loc_label}...")
+        print(f"   - Sites: {', '.join(sites)}")
+        print(f"   - Limit: {query.get('results_wanted', 20)} jobs, {query.get('hours_old', 24)} hours old")
         
         try:
             jobs = scrape_jobs(
@@ -70,7 +72,9 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
         except Exception:
             continue
 
-    print(f"✅ Success for {profile_name}! Found {len(df)} jobs. Added {new_entries} NEW entries.")
+    print(f"✅ Success for {profile_name}!")
+    print(f"   - Total unique jobs found: {len(df)}")
+    print(f"   - New entries added to DB: {new_entries}")
     return new_entries
 
 def run_scout_all():

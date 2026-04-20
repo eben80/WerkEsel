@@ -102,8 +102,9 @@ def run_tailor(profile_id=None):
             return 0
 
         tailored_count = 0
-        for job in jobs:
+        for i, job in enumerate(jobs, 1):
             db_id, job_id, title, company, description, my_profile, u_name, u_email, u_phone, u_loc, u_li, u_web, u_header = job
+            print(f"   [{i}/{len(jobs)}] Tailoring for: {title} @ {company} (ID: {db_id})")
 
             user_info = {
                 "name": u_name, "email": u_email, "phone": u_phone,
@@ -157,7 +158,9 @@ def run_tailor(profile_id=None):
 
                 conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                 conn.commit()
-                print(f"✅ Application Ready for {company}")
+                print(f"      - Created resumes/{db_id}_Resume.pdf")
+                print(f"      - Created resumes/{db_id}_CoverLetter.pdf")
+                print(f"      ✅ Application Ready for {company}")
                 tailored_count += 1
 
             except Exception as e:

@@ -260,23 +260,38 @@ def show_jobs():
     # --- MANUAL TRIGGERS ---
     t1, t2, t3 = st.columns(3)
     if t1.button("🔍 Run Scout Now", use_container_width=True):
-        with st.spinner("Scouting for new jobs..."):
+        with st.status("Scouting for new jobs...", expanded=True) as status:
             params = profile_params if isinstance(profile_params, list) else json.loads(profile_params or "[]")
-            new_count = scout.run_scout_for_profile(profile_id, selected_profile_name, params)
-            st.success(f"Scout complete! Added {new_count} new entries.")
-            st.rerun()
+            import io
+            from contextlib import redirect_stdout
+            f = io.StringIO()
+            with redirect_stdout(f):
+                new_count = scout.run_scout_for_profile(profile_id, selected_profile_name, params)
+            st.code(f.getvalue())
+            status.update(label=f"Scout complete! Added {new_count} new entries.", state="complete")
+            if st.button("Refresh Page"): st.rerun()
 
     if t2.button("🧠 Run Matcher Now", use_container_width=True):
-        with st.spinner("Analyzing matches with OpenAI..."):
-            scored = matcher.run_matcher(profile_id=profile_id)
-            st.success(f"Matcher complete! Scored {scored} jobs.")
-            st.rerun()
+        with st.status("Analyzing matches with OpenAI...", expanded=True) as status:
+            import io
+            from contextlib import redirect_stdout
+            f = io.StringIO()
+            with redirect_stdout(f):
+                scored = matcher.run_matcher(profile_id=profile_id)
+            st.code(f.getvalue())
+            status.update(label=f"Matcher complete! Scored {scored} jobs.", state="complete")
+            if st.button("Refresh Page"): st.rerun()
 
     if t3.button("🧵 Run Tailor Now", use_container_width=True):
-        with st.spinner("Generating tailored PDFs..."):
-            tailored = tailor.run_tailor(profile_id=profile_id)
-            st.success(f"Tailor complete! Generated {tailored} applications.")
-            st.rerun()
+        with st.status("Generating tailored PDFs...", expanded=True) as status:
+            import io
+            from contextlib import redirect_stdout
+            f = io.StringIO()
+            with redirect_stdout(f):
+                tailored = tailor.run_tailor(profile_id=profile_id)
+            st.code(f.getvalue())
+            status.update(label=f"Tailor complete! Generated {tailored} applications.", state="complete")
+            if st.button("Refresh Page"): st.rerun()
 
     st.divider()
 

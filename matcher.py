@@ -37,11 +37,15 @@ def run_matcher(profile_id=None):
     print(f"🧠 Processing {len(jobs)} jobs with OpenAI...")
     scored_count = 0
 
-    for job in jobs:
+    for i, job in enumerate(jobs, 1):
         db_id, title, company, description, profile_text = job
+        print(f"   [{i}/{len(jobs)}] Analyzing: {title} @ {company} (ID: {db_id})")
         
         # Slicing safely: if description is None, use empty string
         clean_desc = (description or "")[:4000]
+        if not clean_desc.strip():
+            print(f"   ⚠️ Skipping: Job description is empty for ID {db_id}")
+            continue
 
         prompt = f"""
         You are an expert technical recruiter. Analyze the following Job Description against the Candidate Profile.
