@@ -13,13 +13,44 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 def run_matcher(profile_id=None):
     """Runs the matcher for new jobs. Optionally filtered by profile_id."""
     with engine.connect() as conn:
-        # We only want jobs that have a description to read
+        # Diagnostic: Count all unscored jobs
+        diag_sql = "SELECT COUNT(*) FROM job_leads WHERE match_score IS NULL"
+        diag_params = {}
+        if profile_id:
+            diag_sql += " AND profile_id = :pid"
+            diag_params["pid"] = profile_id
+
+        unscored_total = conn.execute(text(diag_sql), diag_params).scalar()
+        print(f"📊 Diagnostic: Found {unscored_total} total unscored jobs.")
+
+        if unscored_total > 0:
+            # Check for missing descriptions
+            desc_sql = "SELECT COUNT(*) FROM job_leads WHERE match_score IS NULL AND (description IS NULL OR TRIM(description) = '')"
+            if profile_id: desc_sql += " AND profile_id = :pid"
+            missing_desc = conn.execute(text(desc_sql), diag_params).scalar()
+            if missing_desc > 0:
+                print(f"   ⚠️ Warning: {missing_desc} unscored jobs have NULL or empty descriptions.")
+
+            # Check for orphaned jobs (missing profile_id)
+            orphan_sql = "SELECT COUNT(*) FROM job_leads WHERE match_score IS NULL AND profile_id IS NULL"
+            orphans = conn.execute(text(orphan_sql)).scalar()
+            if orphans > 0:
+                print(f"   ⚠️ Warning: {orphans} unscored jobs are missing a profile_id association.")
+
+            # Check if profiles exist for the given ids
+            if profile_id:
+                prof_exists = conn.execute(text("SELECT COUNT(*) FROM search_profiles WHERE id = :pid"), {"pid": profile_id}).scalar()
+                if not prof_exists:
+                    print(f"   ❌ Error: Search profile with ID {profile_id} does not exist.")
+
+        # Main Query
         sql = """
             SELECT jl.id, jl.title, jl.company, jl.description, sp.profile_text
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
             WHERE jl.match_score IS NULL
             AND jl.description IS NOT NULL
+            AND jl.description != ''
         """
         params = {}
         if profile_id:
@@ -31,7 +62,7 @@ def run_matcher(profile_id=None):
         jobs = conn.execute(text(sql), params).fetchall()
 
     if not jobs:
-        print("🙌 No new valid jobs to match.")
+        print("🙌 No new valid jobs to match (description present and profile associated).")
         return 0
 
     print(f"🧠 Processing {len(jobs)} jobs with OpenAI...")
