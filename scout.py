@@ -33,6 +33,12 @@ def setup_db():
                 name VARCHAR(255),
                 role ENUM('admin', 'user') DEFAULT 'user',
                 is_verified BOOLEAN DEFAULT FALSE,
+                verification_code VARCHAR(10),
+                phone VARCHAR(50),
+                location VARCHAR(255),
+                linkedin_url VARCHAR(255),
+                website_url VARCHAR(255),
+                header_template TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -59,6 +65,15 @@ def setup_db():
                 conn.execute(text("ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) AFTER is_verified"))
             except Exception:
                 pass
+
+        for col in [("phone", "VARCHAR(50)"), ("location", "VARCHAR(255)"), ("linkedin_url", "VARCHAR(255)"), ("website_url", "VARCHAR(255)"), ("header_template", "TEXT")]:
+            try:
+                conn.execute(text(f"SELECT {col[0]} FROM users LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col[0]} {col[1]}"))
+                except Exception:
+                    pass
 
         # Job Leads Table
         conn.execute(text("""

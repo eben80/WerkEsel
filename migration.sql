@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS users (
     role ENUM('admin', 'user') DEFAULT 'user',
     is_verified BOOLEAN DEFAULT FALSE,
     verification_code VARCHAR(10),
+    phone VARCHAR(50),
+    location VARCHAR(255),
+    linkedin_url VARCHAR(255),
+    website_url VARCHAR(255),
+    header_template TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -35,6 +40,21 @@ CREATE PROCEDURE MigrateUsers()
 BEGIN
     IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'verification_code') THEN
         ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) AFTER is_verified;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'phone') THEN
+        ALTER TABLE users ADD COLUMN phone VARCHAR(50);
+    END IF;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'location') THEN
+        ALTER TABLE users ADD COLUMN location VARCHAR(255);
+    END IF;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'linkedin_url') THEN
+        ALTER TABLE users ADD COLUMN linkedin_url VARCHAR(255);
+    END IF;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'website_url') THEN
+        ALTER TABLE users ADD COLUMN website_url VARCHAR(255);
+    END IF;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'header_template') THEN
+        ALTER TABLE users ADD COLUMN header_template TEXT;
     END IF;
 END //
 DELIMITER ;

@@ -36,6 +36,11 @@ def setup_db():
                 role ENUM('admin', 'user') DEFAULT 'user',
                 is_verified BOOLEAN DEFAULT FALSE,
                 verification_code VARCHAR(10),
+                phone VARCHAR(50),
+                location VARCHAR(255),
+                linkedin_url VARCHAR(255),
+                website_url VARCHAR(255),
+                header_template TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -88,6 +93,15 @@ def setup_db():
                 conn.execute(text("ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) AFTER is_verified"))
             except Exception:
                 pass
+
+        for col in [("phone", "VARCHAR(50)"), ("location", "VARCHAR(255)"), ("linkedin_url", "VARCHAR(255)"), ("website_url", "VARCHAR(255)"), ("header_template", "TEXT")]:
+            try:
+                conn.execute(text(f"SELECT {col[0]} FROM users LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col[0]} {col[1]}"))
+                except Exception:
+                    pass
 
         # Migration for existing job_leads
         try:
@@ -171,7 +185,7 @@ def login_page():
                 st.success("Email verified! You can now log in.")
             else:
                 st.error("Invalid email or verification code.")
-                
+
     with tab4:
         st.write("Google Login integration placeholder.")
         # In a real app, you'd use a Google Login button that returns a JWT token
@@ -198,7 +212,7 @@ def main():
         st.session_state.user = None
         st.rerun()
 
-    menu = ["Dashboard", "Profiles", "Jobs"]
+    menu = ["Dashboard", "Profiles", "Jobs", "User Settings"]
     if user['role'] == 'admin':
         menu.append("Admin Panel")
 
@@ -210,6 +224,8 @@ def main():
         show_profiles()
     elif choice == "Jobs":
         show_jobs()
+    elif choice == "User Settings":
+        show_user_settings()
     elif choice == "Admin Panel":
         show_admin()
 
@@ -351,6 +367,42 @@ def show_jobs():
                             conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
+
+def show_user_settings():
+    st.title("⚙️ User Settings")
+    user = st.session_state.user
+    user_id = user['id']
+
+    with engine.connect() as conn:
+        curr_user = conn.execute(text("SELECT name, phone, location, linkedin_url, website_url, header_template FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+
+    with st.form("settings_form"):
+        st.subheader("Contact Information")
+        new_name = st.text_input("Full Name", value=curr_user[0])
+        new_phone = st.text_input("Phone Number", value=curr_user[1] or "")
+        new_location = st.text_input("Location (City, State/Prov)", value=curr_user[2] or "")
+        new_linkedin = st.text_input("LinkedIn URL", value=curr_user[3] or "")
+        new_website = st.text_input("Website/Portfolio URL", value=curr_user[4] or "")
+
+        st.subheader("Resume Header Template")
+        st.caption("Use placeholders: {name}, {email}, {phone}, {location}, {linkedin}, {website}")
+        default_template = "{name}\n{phone} | {email} | {location}\n{linkedin} | {website}"
+        new_template = st.text_area("Header Template", value=curr_user[5] or default_template, height=100)
+
+        if st.form_submit_button("Save Settings"):
+            with engine.connect() as conn:
+                conn.execute(text("""
+                    UPDATE users
+                    SET name = :n, phone = :p, location = :l, linkedin_url = :li, website_url = :w, header_template = :h
+                    WHERE id = :id
+                """), {
+                    "n": new_name, "p": new_phone, "l": new_location, "li": new_linkedin, "w": new_website, "h": new_template, "id": user_id
+                })
+                conn.commit()
+            st.success("Settings updated!")
+            # Update session state name
+            st.session_state.user['name'] = new_name
+            st.rerun()
 
 def show_admin():
     st.title("🛡️ Admin Panel")

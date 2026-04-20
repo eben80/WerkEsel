@@ -20,7 +20,7 @@ engine = create_engine(DB_URL)
 
 os.makedirs("resumes", exist_ok=True)
 
-def generate_pdf(filename, title, content):
+def generate_pdf(filename, title, content, user_info):
     pdf = FPDF(format='letter')
     pdf.add_page()
     
@@ -32,14 +32,29 @@ def generate_pdf(filename, title, content):
     else:
         body_font = "helvetica"
 
-    # 1. HEADER (Eben's Info)
-    pdf.set_font(body_font, "B", 18)
-    pdf.cell(0, 10, "EBEN VAN ELLEWEE", align='L', new_x="LMARGIN", new_y="NEXT")
+    # 1. HEADER (Dynamic based on user settings)
+    template = user_info.get('header_template') or "{name}\n{email}"
+    placeholders = {
+        "{name}": user_info.get('name', ''),
+        "{email}": user_info.get('email', ''),
+        "{phone}": user_info.get('phone', ''),
+        "{location}": user_info.get('location', ''),
+        "{linkedin}": user_info.get('linkedin_url', ''),
+        "{website}": user_info.get('website_url', '')
+    }
     
-    pdf.set_font(body_font, size=9)
-    #contact_info = "647-749-5428 | ebenvanellewee@gmail.com | Toronto, ON | linkedin.com/in/ebenvanellewee"
-    contact_info = "ebenvanellewee@gmail.com | linkedin.com/in/ebenvanellewee"
-    pdf.cell(0, 5, contact_info, align='L', new_x="LMARGIN", new_y="NEXT")
+    header_text = template
+    for key, val in placeholders.items():
+        header_text = header_text.replace(key, str(val or ""))
+
+    lines = header_text.split('\n')
+    for i, line in enumerate(lines):
+        if i == 0:
+            pdf.set_font(body_font, "B", 18)
+            pdf.cell(0, 10, line.upper(), align='L', new_x="LMARGIN", new_y="NEXT")
+        else:
+            pdf.set_font(body_font, size=9)
+            pdf.cell(0, 5, line, align='L', new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_draw_color(100, 100, 100) 
     pdf.line(10, pdf.get_y() + 2, 205, pdf.get_y() + 2)
@@ -72,9 +87,11 @@ def generate_pdf(filename, title, content):
 def run_tailor():
     with engine.connect() as conn:
         query = text("""
-            SELECT jl.id, jl.job_id, jl.title, jl.company, jl.description, sp.profile_text
+            SELECT jl.id, jl.job_id, jl.title, jl.company, jl.description, sp.profile_text,
+                   u.name, u.email, u.phone, u.location, u.linkedin_url, u.website_url, u.header_template
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
+            JOIN users u ON sp.user_id = u.id
             WHERE jl.status = 'approved'
             LIMIT 5
         """)
@@ -84,7 +101,14 @@ def run_tailor():
             print("📭 No approved jobs to tailor.")
             return
 
-        for db_id, job_id, title, company, description, my_profile in jobs:
+        for job in jobs:
+            db_id, job_id, title, company, description, my_profile, u_name, u_email, u_phone, u_loc, u_li, u_web, u_header = job
+
+            user_info = {
+                "name": u_name, "email": u_email, "phone": u_phone,
+                "location": u_loc, "linkedin_url": u_li, "website_url": u_web,
+                "header_template": u_header
+            }
             print(f"🧵 Tailoring application for {title} at {company}...")
 
             combined_prompt = f"""
@@ -127,8 +151,8 @@ def run_tailor():
                 
                 # Use db_id for file naming to be consistent with app.py's expected patterns
                 # Pass empty title for Resume as requested
-                generate_pdf(f"resumes/{db_id}_Resume.pdf", "", full_resume)
-                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl)
+                generate_pdf(f"resumes/{db_id}_Resume.pdf", "", full_resume, user_info)
+                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl, user_info)
 
                 conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                 conn.commit()
