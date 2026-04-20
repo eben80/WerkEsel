@@ -17,23 +17,16 @@ DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 engine = create_engine(DB_URL)
 
-def get_master_profile():
-    if not os.path.exists("profile.txt"):
-        with open("profile.txt", "w") as f: f.write("Add your experience here")
-    with open("profile.txt", "r") as f:
-        return f.read()
-
 def run_matcher():
-    profile = get_master_profile()
-    
     with engine.connect() as conn:
         # We only want jobs that have a description to read
         query = text("""
-            SELECT id, title, company, description 
-            FROM job_leads 
-            WHERE match_score IS NULL 
-            AND description IS NOT NULL 
-            LIMIT 10
+            SELECT jl.id, jl.title, jl.company, jl.description, sp.profile_text
+            FROM job_leads jl
+            JOIN search_profiles sp ON jl.profile_id = sp.id
+            WHERE jl.match_score IS NULL
+            AND jl.description IS NOT NULL
+            LIMIT 20
         """)
         jobs = conn.execute(query).fetchall()
 
@@ -44,7 +37,7 @@ def run_matcher():
     print(f"🧠 Processing {len(jobs)} jobs with OpenAI...")
 
     for job in jobs:
-        job_id, title, company, description = job
+        db_id, title, company, description, profile_text = job
         
         # Slicing safely: if description is None, use empty string
         clean_desc = (description or "")[:4000]
@@ -53,7 +46,7 @@ def run_matcher():
         You are an expert technical recruiter. Analyze the following Job Description against the Candidate Profile.
         
         CANDIDATE PROFILE:
-        {profile}
+        {profile_text}
         
         JOB DESCRIPTION:
         Title: {title}
@@ -78,7 +71,7 @@ def run_matcher():
             with engine.connect() as conn:
                 conn.execute(
                     text("UPDATE job_leads SET match_score = :score, ai_summary = :summary, matched_at = CURRENT_TIMESTAMP WHERE id = :id"),
-                    {"score": result.get('score', 0), "summary": result.get('summary', 'No summary'), "id": job_id}
+                    {"score": result.get('score', 0), "summary": result.get('summary', 'No summary'), "id": db_id}
                 )
                 conn.commit()
             print(f"✅ Scored {title}: {result.get('score')}%")
@@ -87,7 +80,7 @@ def run_matcher():
             print(f"❌ Error scoring {title}: {e}")
             # Mark it with a 0 so we don't keep trying to process a broken record
             with engine.connect() as conn:
-                conn.execute(text("UPDATE job_leads SET match_score = 0 WHERE id = :id"), {"id": job_id})
+                conn.execute(text("UPDATE job_leads SET match_score = 0 WHERE id = :id"), {"id": db_id})
                 conn.commit()
 
 if __name__ == "__main__":

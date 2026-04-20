@@ -1,19 +1,65 @@
-import os
 import streamlit as st
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, text, bindparam
+import os
+import json
 import pandas as pd
-import requests
+from sqlalchemy import create_engine, text, bindparam
+from dotenv import load_dotenv
+
+# --- CONFIG ---
+load_dotenv()
+
+import auth
 from importlib import metadata
+import requests
+
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
+engine = create_engine(DB_URL)
+RESUME_DIR = "resumes"
+os.makedirs(RESUME_DIR, exist_ok=True)
 
 # --- DB MIGRATION ---
 def setup_db():
-    """Ensures the table exists and has all necessary columns."""
+    """Ensures tables exist and have all necessary columns."""
     with engine.connect() as conn:
+        # Users Table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255),
+                google_id VARCHAR(255) UNIQUE,
+                name VARCHAR(255),
+                role ENUM('admin', 'user') DEFAULT 'user',
+                is_verified BOOLEAN DEFAULT FALSE,
+                verification_code VARCHAR(10),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+        # Search Profiles Table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS search_profiles (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                profile_text TEXT,
+                search_params JSON,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """))
+
+        # Job Leads Table
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS job_leads (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                job_id VARCHAR(255) UNIQUE,
+                profile_id INT,
+                job_id VARCHAR(255),
                 site VARCHAR(50),
                 title VARCHAR(255),
                 company VARCHAR(255),
@@ -28,318 +74,300 @@ def setup_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 matched_at TIMESTAMP DEFAULT NULL,
                 tailored_at TIMESTAMP DEFAULT NULL,
-                applied_at TIMESTAMP DEFAULT NULL
+                applied_at TIMESTAMP DEFAULT NULL,
+                CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE,
+                UNIQUE KEY unique_job_per_profile (job_id, profile_id)
             )
         """))
-        # Add columns if they don't exist (for older existing databases)
-        for col in ["matched_at", "tailored_at", "applied_at"]:
-            try:
-                conn.execute(text(f"ALTER TABLE job_leads ADD COLUMN {col} TIMESTAMP DEFAULT NULL"))
-            except Exception:
-                pass # Already exists
 
-        # Update ENUM for status column
+        # Migration for existing users
         try:
-            conn.execute(text("ALTER TABLE job_leads MODIFY COLUMN status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new'"))
+            conn.execute(text("SELECT verification_code FROM users LIMIT 1"))
+        except Exception:
+            try:
+                conn.execute(text("ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) AFTER is_verified"))
+            except Exception:
+                pass
+
+        # Migration for existing job_leads
+        try:
+            # 1. Add profile_id if it doesn't exist
+            conn.execute(text("SELECT profile_id FROM job_leads LIMIT 1"))
+        except Exception:
+            try:
+                conn.execute(text("ALTER TABLE job_leads ADD COLUMN profile_id INT AFTER id"))
+                print("Added profile_id column to job_leads.")
+            except Exception as e:
+                print(f"Error adding profile_id: {e}")
+
+        try:
+            # 2. Add foreign key if it doesn't exist
+            conn.execute(text("ALTER TABLE job_leads ADD CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE"))
+            print("Added foreign key constraint fk_profile.")
+        except Exception:
+            pass # Probably already exists
+
+        try:
+            # 3. Update Unique Key
+            conn.execute(text("ALTER TABLE job_leads DROP INDEX job_id"))
+            print("Dropped old unique index job_id.")
         except Exception:
             pass
+
+        try:
+            conn.execute(text("ALTER TABLE job_leads ADD UNIQUE KEY unique_job_per_profile (job_id, profile_id)"))
+            print("Added unique key unique_job_per_profile.")
+        except Exception:
+            pass
+
         conn.commit()
 
-# --- CONFIG ---
-# Load the variables from the .env file
-load_dotenv()
-# Build the URL dynamically
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-
-DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
-engine = create_engine(DB_URL)
-
-setup_db() # Run migration on start
-
-RESUME_DIR = "resumes" # Ensure this matches your tailor.py path
+setup_db()
 
 st.set_page_config(page_title="WerkEsel Job Assistant", layout="wide", page_icon="🫏")
 
-# --- VERSION CHECK ---
-@st.cache_data(ttl=3600)
-def check_jobspy_update():
-    try:
-        package_name = "python-jobspy"
-        current_version = metadata.version(package_name)
+# --- SESSION STATE ---
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "profile_id" not in st.session_state:
+    st.session_state.profile_id = None
 
-        response = requests.get(f"https://pypi.org/pypi/{package_name}/json", timeout=2)
-        latest_version = response.json()["info"]["version"]
+# --- AUTH UI ---
+def login_page():
+    st.title("🫏 WerkEsel: Login")
 
-        if current_version != latest_version:
-            return {
-                "message": f"🔔 Update available for **{package_name}**: {current_version} ⮕ {latest_version}",
-                "command": f"pip install --upgrade {package_name}"
-            }
-    except Exception:
-        pass # Silently fail if check fails
-    return None
+    tab1, tab2, tab3, tab4 = st.tabs(["Login", "Sign Up", "Verify Email", "Google Login"])
 
-st.title("🫏 WerkEsel: Job Assistant")
-st.write("Reviewing jobs for **tefinitely.com**")
+    with tab1:
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            user = auth.login_user(engine, email, password)
+            if user:
+                if not user['is_verified']:
+                    st.warning("Please verify your email before logging in.")
+                else:
+                    st.session_state.user = user
+                    st.success(f"Welcome back, {user['name']}!")
+                    st.rerun()
+            else:
+                st.error("Invalid email or password.")
 
-update_info = check_jobspy_update()
-if update_info:
-    st.warning(update_info["message"])
-    st.code(update_info["command"])
-# --- NEW: STATUS DASHBOARD ---
-with engine.connect() as conn:
-    stats_query = text("""
-        SELECT 
-            COUNT(CASE WHEN status = 'new' AND match_score IS NULL THEN 1 END) as unscored,
-            COUNT(CASE WHEN status = 'new' AND match_score >= 70 THEN 1 END) as high_matches,
-            COUNT(CASE WHEN status = 'approved' THEN 1 END) as pending_tailor,
-            COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply,
-            COUNT(CASE WHEN status = 'applied' THEN 1 END) as applied,
-            COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
-            COUNT(CASE WHEN status = 'archived' THEN 1 END) as archived
+    with tab2:
+        new_name = st.text_input("Full Name", key="reg_name")
+        new_email = st.text_input("Email", key="reg_email")
+        new_pass = st.text_input("Password", type="password", key="reg_pass")
+        if st.button("Register"):
+            if auth.signup_user(engine, new_email, new_pass, new_name):
+                st.success("Registration successful! Please check your email for the verification code and enter it in the 'Verify Email' tab.")
+            else:
+                st.error("Registration failed. Email might already be in use.")
+
+    with tab3:
+        v_email = st.text_input("Email", key="v_email")
+        v_code = st.text_input("Verification Code", key="v_code")
+        if st.button("Verify"):
+            if auth.verify_user_code(engine, v_email, v_code):
+                st.success("Email verified! You can now log in.")
+            else:
+                st.error("Invalid email or verification code.")
+                
+    with tab4:
+        st.write("Google Login integration placeholder.")
+        # In a real app, you'd use a Google Login button that returns a JWT token
+        # For this demo, let's assume we get a token from a frontend component
+        token = st.text_input("Paste Google JWT Token (Demo purposes)")
+        if st.button("Login with Google"):
+            id_info = auth.verify_google_token(token)
+            if id_info:
+                user = auth.get_or_create_google_user(engine, id_info)
+                st.session_state.user = user
+                st.rerun()
+            else:
+                st.error("Invalid Google Token.")
+
+# --- MAIN APP ---
+def main():
+    if not st.session_state.user:
+        login_page()
+        return
+
+    user = st.session_state.user
+    st.sidebar.title(f"🫏 {user['name']}")
+    if st.sidebar.button("Logout"):
+        st.session_state.user = None
+        st.rerun()
+
+    menu = ["Dashboard", "Profiles", "Jobs"]
+    if user['role'] == 'admin':
+        menu.append("Admin Panel")
+
+    choice = st.sidebar.selectbox("Navigation", menu)
+
+    if choice == "Dashboard":
+        show_dashboard()
+    elif choice == "Profiles":
+        show_profiles()
+    elif choice == "Jobs":
+        show_jobs()
+    elif choice == "Admin Panel":
+        show_admin()
+
+def show_dashboard():
+    st.title("🚀 Dashboard")
+    # Stats query for all user's profiles
+    with engine.connect() as conn:
+        stats = conn.execute(text("""
+            SELECT
+                COUNT(CASE WHEN status = 'new' AND match_score IS NULL THEN 1 END) as unscored,
+                COUNT(CASE WHEN status = 'new' AND match_score >= 70 THEN 1 END) as high_matches,
+                COUNT(CASE WHEN status = 'approved' THEN 1 END) as pending_tailor,
+                COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply
+            FROM job_leads jl
+            JOIN search_profiles sp ON jl.profile_id = sp.id
+            WHERE sp.user_id = :user_id
+        """), {"user_id": st.session_state.user['id']}).fetchone()
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("📥 Unscored", stats[0])
+    m2.metric("🔥 High Matches", stats[1])
+    m3.metric("🧵 Pending Tailor", stats[2])
+    m4.metric("✅ Ready to Apply", stats[3])
+
+def show_profiles():
+    st.title("📂 Search Profiles")
+    user_id = st.session_state.user['id']
+
+    with engine.connect() as conn:
+        profiles = conn.execute(text("SELECT id, name, is_active, profile_text, search_params FROM search_profiles WHERE user_id = :u"), {"u": user_id}).fetchall()
+
+    for p in profiles:
+        with st.expander(f"Profile: {p[1]} {'(Active)' if p[2] else '(Inactive)'}"):
+            new_name = st.text_input("Name", value=p[1], key=f"name_{p[0]}")
+            new_text = st.text_area("Profile Text", value=p[3], key=f"text_{p[0]}")
+            params_str = json.dumps(p[4], indent=2) if isinstance(p[4], (dict, list)) else p[4]
+            new_params = st.text_area("Search Params (JSON)", value=params_str, key=f"params_{p[0]}")
+            is_active = st.checkbox("Active", value=p[2], key=f"active_{p[0]}")
+
+            if st.button("Update Profile", key=f"up_{p[0]}"):
+                try:
+                    params_json = json.loads(new_params)
+                    with engine.connect() as conn:
+                        conn.execute(text("UPDATE search_profiles SET name=:n, profile_text=:t, search_params=:p, is_active=:a WHERE id=:id"),
+                                     {"n": new_name, "t": new_text, "p": json.dumps(params_json), "a": is_active, "id": p[0]})
+                        conn.commit()
+                    st.success("Profile updated!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    st.subheader("Add New Profile")
+    with st.form("new_profile"):
+        n_name = st.text_input("Profile Name")
+        n_text = st.text_area("Profile Text (Your Bio/Experience)")
+        n_params = st.text_area("Search Params (JSON)", value='[{"search_term": "Product Manager", "location": "Toronto, ON", "is_remote": false}]')
+        if st.form_submit_button("Create Profile"):
+            try:
+                p_json = json.loads(n_params)
+                with engine.connect() as conn:
+                    conn.execute(text("INSERT INTO search_profiles (user_id, name, profile_text, search_params) VALUES (:u, :n, :t, :p)"),
+                                 {"u": user_id, "n": n_name, "t": n_text, "p": json.dumps(p_json)})
+                    conn.commit()
+                st.success("Profile created!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+def show_jobs():
+    st.title("📋 Job Leads")
+    user_id = st.session_state.user['id']
+
+    with engine.connect() as conn:
+        profiles = conn.execute(text("SELECT id, name FROM search_profiles WHERE user_id = :u"), {"u": user_id}).fetchall()
+
+    if not profiles:
+        st.warning("Please create a search profile first.")
+        return
+
+    profile_options = {p[1]: p[0] for p in profiles}
+    selected_profile_name = st.selectbox("Select Profile", list(profile_options.keys()))
+    profile_id = profile_options[selected_profile_name]
+    st.session_state.profile_id = profile_id
+
+    # Filtering
+    filter_status = st.pills("Filter Status:", ["All", "High Matches", "Approved", "Tailored", "Applied", "Rejected", "Archived"], default="All")
+
+    status_map = {"High Matches": "new", "Approved": "approved", "Tailored": "tailored", "Applied": "applied", "Rejected": "rejected", "Archived": "archived"}
+
+    query = text("""
+        SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
         FROM job_leads
+        WHERE profile_id = :pid
+        ORDER BY FIELD(status, 'tailored', 'applied', 'new', 'approved', 'rejected', 'archived'), match_score DESC
     """)
-    stats = conn.execute(stats_query).fetchone()
 
-# Display metrics in 7 columns
-m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
-m1.metric("📥 Unscored", stats[0])
-m2.metric("🔥 High Matches", stats[1])
-m3.metric("🧵 Pending Tailor", stats[2])
-m4.metric("✅ Ready to Apply", stats[3])
-m5.metric("🚀 Applied", stats[4])
-m6.metric("❌ Rejected", stats[5])
-m7.metric("🗑️ Archived", stats[6])
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn, params={"pid": profile_id})
 
-st.divider()
+    if df.empty:
+        st.info("No jobs found for this profile. Run the scout!")
+        return
 
-# --- FILTERING & BATCH UI ---
-st.subheader("📋 Job Leads")
-f_col1, f_col2 = st.columns([4, 1])
-
-with f_col1:
-    filter_status = st.pills(
-        "Filter by Status:",
-        options=["All", "High Matches (New)", "Pending Tailor (Approved)", "Ready to Apply (Tailored)", "Applied", "Rejected", "Archived"],
-        default="All"
-    )
-
-status_map = {
-    "High Matches (New)": "new",
-    "Pending Tailor (Approved)": "approved",
-    "Ready to Apply (Tailored)": "tailored",
-    "Applied": "applied",
-    "Rejected": "rejected",
-    "Archived": "archived"
-}
-
-# --- END STATUS DASHBOARD ---
-# 1. Fetch Jobs
-query = text("""
-    SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
-    FROM job_leads 
-    WHERE status IN ('new', 'approved', 'tailored', 'applied', 'rejected', 'archived')
-    ORDER BY FIELD(status, 'tailored', 'applied', 'new', 'approved', 'rejected', 'archived'), match_score DESC
-""")
-
-with engine.connect() as conn:
-    df = pd.read_sql(query, conn)
-
-if df.empty:
-    st.success("No jobs found. Run scout.py and matcher.py!")
-else:
-    # Apply UI filters
-    if filter_status == "High Matches (New)":
+    if filter_status == "High Matches":
         df = df[(df['status'] == 'new') & (df['match_score'] >= 70)]
     elif filter_status != "All":
         df = df[df['status'] == status_map[filter_status]]
-    elif filter_status == "All":
-        # By default, only show relevant jobs unless explicitly filtered
-        df = df[((df['status'] == 'new') & (df['match_score'] >= 70)) | (df['status'].isin(['approved', 'tailored', 'applied']))]
 
-    if df.empty:
-        st.info(f"No jobs found for filter: {filter_status}")
-    else:
-        # --- BATCH BUTTONS (Top Right) ---
-        with f_col2:
-            batch_archive = st.button("🗑️ Batch Archive", use_container_width=True)
-            batch_delete = st.button("💀 Batch Delete", use_container_width=True)
+    for _, row in df.iterrows():
+        with st.container(border=True):
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                st.subheader(f"{row['title']} @ {row['company']}")
+                st.caption(f"Score: {row['match_score']}% | Status: {row['status'].upper()}")
+                st.write(f"**AI Insight:** {row['ai_summary']}")
+                st.link_button("View Posting", row['job_url'])
 
-        st.write("---")
+                if row['status'] in ['tailored', 'applied']:
+                    res_path = f"resumes/{row['id']}_Resume.pdf"
+                    cl_path = f"resumes/{row['id']}_CoverLetter.pdf"
+                    d_col1, d_col2 = st.columns(2)
+                    if os.path.exists(res_path):
+                        with open(res_path, "rb") as f:
+                            d_col1.download_button("📥 Resume", f, file_name=f"Resume_{row['company']}.pdf", key=f"dl_r_{row['id']}")
+                    if os.path.exists(cl_path):
+                        with open(cl_path, "rb") as f:
+                            d_col2.download_button("📥 Cover Letter", f, file_name=f"CoverLetter_{row['company']}.pdf", key=f"dl_cl_{row['id']}")
 
-        # Select All functionality with session state to ensure it works
-        if "select_all_state" not in st.session_state:
-            st.session_state.select_all_state = False
+            with c2:
+                if row['status'] == 'new':
+                    if st.button("✅ Approve", key=f"ap_{row['id']}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='approved' WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
+                elif row['status'] == 'tailored':
+                    if st.button("🚀 Applied", key=f"ma_{row['id']}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
 
-        def toggle_all():
-            st.session_state.select_all_state = st.session_state.select_all_cb
-            for db_id in df['id']:
-                st.session_state[f"sel_{db_id}"] = st.session_state.select_all_cb
+def show_admin():
+    st.title("🛡️ Admin Panel")
+    with engine.connect() as conn:
+        users = conn.execute(text("SELECT id, email, name, role, is_verified FROM users")).fetchall()
 
-        st.checkbox("Select All Visible", key="select_all_cb", value=st.session_state.select_all_state, on_change=toggle_all)
+    df_users = pd.DataFrame(users, columns=['ID', 'Email', 'Name', 'Role', 'Verified'])
+    st.dataframe(df_users)
 
-        selected_ids = []
+    st.subheader("Manage User")
+    uid = st.number_input("User ID", step=1)
+    new_role = st.selectbox("New Role", ["user", "admin"])
+    if st.button("Update User Role"):
+        with engine.connect() as conn:
+            conn.execute(text("UPDATE users SET role = :r WHERE id = :id"), {"r": new_role, "id": uid})
+            conn.commit()
+        st.success("User updated!")
 
-        # --- JOB LISTING ---
-        for index, row in df.iterrows():
-            db_id = row['id']
-            status = row['status']
-            company = row['company']
-            
-            # Initialize individual checkbox state if not present
-            if f"sel_{db_id}" not in st.session_state:
-                st.session_state[f"sel_{db_id}"] = st.session_state.select_all_state
-
-            with st.container():
-                # Added selection checkbox
-                sel_col, main_col, action_col = st.columns([0.2, 3.8, 1])
-                
-                with sel_col:
-                    # Use session state for individual checkboxes
-                    if st.checkbox("", key=f"sel_{db_id}"):
-                        selected_ids.append(db_id)
-
-                with main_col:
-                    st.subheader(f"{row['title']} @ {company}")
-
-                    # --- TIMESTAMPS ---
-                    ts_info = f"Scraped: {row['created_at'].strftime('%Y-%m-%d %H:%M')}"
-                    if pd.notnull(row['matched_at']):
-                        ts_info += f" | Matched: {row['matched_at'].strftime('%Y-%m-%d %H:%M')}"
-                    if pd.notnull(row['tailored_at']):
-                        ts_info += f" | Tailored: {row['tailored_at'].strftime('%Y-%m-%d %H:%M')}"
-                    if pd.notnull(row['applied_at']):
-                        ts_info += f" | Applied: {row['applied_at'].strftime('%Y-%m-%d %H:%M')}"
-
-                    st.caption(f"Score: {row['match_score']}% | Status: {status.upper()} | [View Posting]({row['job_url']})")
-                    st.caption(ts_info)
-                    st.write(f"**AI Insight:** {row['ai_summary']}")
-
-                    # --- DOWNLOAD SECTION ---
-                    if status in ['tailored', 'applied']:
-                        st.info("📂 Tailored documents are ready for download:")
-                        d_col1, d_col2 = st.columns(2)
-
-                        resume_path = os.path.join(RESUME_DIR, f"{db_id}_Resume.pdf")
-                        cl_path = os.path.join(RESUME_DIR, f"{db_id}_CoverLetter.pdf")
-
-                        if os.path.exists(resume_path):
-                            with open(resume_path, "rb") as f:
-                                d_col1.download_button(
-                                    label="📥 Download Resume",
-                                    data=f,
-                                    file_name=f"Resume_{company.replace(' ', '_')}.pdf",
-                                    mime="application/pdf",
-                                    key=f"dl_res_{db_id}"
-                                )
-
-                        if os.path.exists(cl_path):
-                            with open(cl_path, "rb") as f:
-                                d_col2.download_button(
-                                    label="📥 Download Cover Letter",
-                                    data=f,
-                                    file_name=f"CoverLetter_{company.replace(' ', '_')}.pdf",
-                                    mime="application/pdf",
-                                    key=f"dl_cl_{db_id}"
-                                )
-
-                with action_col:
-                    # 1. Action Buttons based on status
-                    if status == 'approved':
-                        st.info("🧵 Pending Tailoring (Run tailor.py)")
-
-                    if status == 'new':
-                        if st.button("✅ Approve", key=f"app_{db_id}"):
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'approved' WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-
-                        if st.button("❌ Reject", key=f"rej_{db_id}"):
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'rejected' WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-
-                    elif status == 'tailored':
-                        if st.button("🚀 Mark Applied", key=f"mark_app_{db_id}"):
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-
-                        if st.button("♻️ Re-tailor", key=f"retailor_{db_id}", help="Revert to approved and delete docs"):
-                            # Cleanup files
-                            resume_path = os.path.join(RESUME_DIR, f"{db_id}_Resume.pdf")
-                            cl_path = os.path.join(RESUME_DIR, f"{db_id}_CoverLetter.pdf")
-                            if os.path.exists(resume_path): os.remove(resume_path)
-                            if os.path.exists(cl_path): os.remove(cl_path)
-
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'approved', tailored_at = NULL WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-
-                    elif status == 'applied':
-                        if st.button("↩️ Unmark Applied", key=f"unmark_app_{db_id}"):
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'tailored', applied_at = NULL WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-
-                    # 2. Secondary Actions (Archive) for tailored/applied jobs
-                    if status in ['tailored', 'applied']:
-                        if st.button("🗑️ Archive", key=f"arc_{db_id}"):
-                            with engine.connect() as conn:
-                                conn.execute(text("UPDATE job_leads SET status = 'archived' WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-
-                    # 3. Permanent Deletion for archived and rejected jobs
-                    if status in ['archived', 'rejected']:
-                        if st.button("💀 Delete Permanently", key=f"del_{db_id}"):
-                            # --- CLEANUP FILES ---
-                            resume_path = os.path.join(RESUME_DIR, f"{db_id}_Resume.pdf")
-                            cl_path = os.path.join(RESUME_DIR, f"{db_id}_CoverLetter.pdf")
-
-                            if os.path.exists(resume_path):
-                                os.remove(resume_path)
-                            if os.path.exists(cl_path):
-                                os.remove(cl_path)
-
-                            # --- DELETE DB RECORD ---
-                            with engine.connect() as conn:
-                                conn.execute(text("DELETE FROM job_leads WHERE id = :id"), {"id": db_id})
-                                conn.commit()
-                            st.rerun()
-                st.divider()
-
-        # --- BATCH LOGIC ---
-        if selected_ids:
-            if batch_archive:
-                with engine.connect() as conn:
-                    conn.execute(
-                        text("UPDATE job_leads SET status = 'archived' WHERE id IN :ids AND status != 'new'").bindparams(bindparam("ids", expanding=True)),
-                        {"ids": selected_ids}
-                    )
-                    conn.commit()
-                st.rerun()
-
-            if batch_delete:
-                for sid in selected_ids:
-                    # Cleanup files
-                    resume_path = os.path.join(RESUME_DIR, f"{sid}_Resume.pdf")
-                    cl_path = os.path.join(RESUME_DIR, f"{sid}_CoverLetter.pdf")
-                    if os.path.exists(resume_path): os.remove(resume_path)
-                    if os.path.exists(cl_path): os.remove(cl_path)
-
-                with engine.connect() as conn:
-                    conn.execute(
-                        text("DELETE FROM job_leads WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
-                        {"ids": selected_ids}
-                    )
-                    conn.commit()
-                st.rerun()
+if __name__ == "__main__":
+    main()

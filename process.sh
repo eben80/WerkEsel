@@ -1,31 +1,20 @@
 #!/bin/bash
 
-# --- WerkEsel EC2 Master Orchestrator ---
-# Purpose: Score new jobs and generate PDFs for approved ones.
+# --- WerkEsel Multi-User Master Orchestrator ---
+# Purpose: Run the full workflow for all users and profiles.
 
 PROJECT_DIR="/home/ubuntu/job_agent"
 VENV_PATH="$PROJECT_DIR/venv/bin/activate"
 
 echo "------------------------------------------------"
-echo "🧠 WerkEsel: Starting AI Processing Cycle..."
+echo "🫏 WerkEsel: Starting Multi-User AI Processing Cycle..."
 echo "------------------------------------------------"
 
-# 1. Navigate to project
 cd $PROJECT_DIR
+# source $VENV_PATH # Uncomment if using venv
 
-# 2. Activate Virtual Environment
-source $VENV_PATH
-
-# 3. Run the Matcher (Scoring)
-echo "🔍 Step 1: Running Matcher..."
-python3 matcher.py
+python3 run_all.py
 
 echo "------------------------------------------------"
-
-# 4. Run the Tailor (PDF Generation)
-echo "🧵 Step 2: Running Tailor..."
-python3 tailor.py
-
-echo "------------------------------------------------"
-echo "✅ Cycle Complete. Check tefinitely.com/werkesel/"
+echo "✅ Cycle Complete."
 echo "------------------------------------------------"

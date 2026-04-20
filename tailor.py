@@ -70,22 +70,21 @@ def generate_pdf(filename, title, content):
     
     pdf.output(filename)
 def run_tailor():
-    if not os.path.exists("profile.txt"):
-        print("❌ Error: profile.txt not found.")
-        return
-        
-    with open("profile.txt", "r") as f:
-        my_profile = f.read()
-
     with engine.connect() as conn:
-        query = text("SELECT id, job_id, title, company, description FROM job_leads WHERE status = 'approved' LIMIT 5")
+        query = text("""
+            SELECT jl.id, jl.job_id, jl.title, jl.company, jl.description, sp.profile_text
+            FROM job_leads jl
+            JOIN search_profiles sp ON jl.profile_id = sp.id
+            WHERE jl.status = 'approved'
+            LIMIT 5
+        """)
         jobs = conn.execute(query).fetchall()
 
         if not jobs:
             print("📭 No approved jobs to tailor.")
             return
 
-        for db_id, job_id, title, company, description in jobs:
+        for db_id, job_id, title, company, description, my_profile in jobs:
             print(f"🧵 Tailoring application for {title} at {company}...")
 
             combined_prompt = f"""
