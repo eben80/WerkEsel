@@ -1,0 +1,72 @@
+-- WerkEsel Multi-User Migration Script
+-- This script sets up the necessary tables for multi-user and multi-profile support.
+-- It also performs migrations on the existing job_leads table.
+
+-- 1. Create Users Table
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255),
+    google_id VARCHAR(255) UNIQUE,
+    name VARCHAR(255),
+    role ENUM('admin', 'user') DEFAULT 'user',
+    is_verified BOOLEAN DEFAULT FALSE,
+    verification_code VARCHAR(10),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Create Search Profiles Table
+CREATE TABLE IF NOT EXISTS search_profiles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    profile_text TEXT,
+    search_params JSON,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 3. Migrate Users Table (if it already existed without verification_code)
+-- Using a procedure to safely check for column existence
+DROP PROCEDURE IF EXISTS MigrateUsers;
+DELIMITER //
+CREATE PROCEDURE MigrateUsers()
+BEGIN
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'verification_code') THEN
+        ALTER TABLE users ADD COLUMN verification_code VARCHAR(10) AFTER is_verified;
+    END IF;
+END //
+DELIMITER ;
+CALL MigrateUsers();
+DROP PROCEDURE MigrateUsers;
+
+-- 4. Migrate Job Leads Table
+DROP PROCEDURE IF EXISTS MigrateJobLeads;
+DELIMITER //
+CREATE PROCEDURE MigrateJobLeads()
+BEGIN
+    -- Add profile_id column
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'job_leads' AND COLUMN_NAME = 'profile_id') THEN
+        ALTER TABLE job_leads ADD COLUMN profile_id INT AFTER id;
+    END IF;
+
+    -- Add foreign key constraint
+    -- We check if the constraint exists by looking for the constraint name in information_schema
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE CONSTRAINT_NAME = 'fk_profile' AND TABLE_NAME = 'job_leads') THEN
+        ALTER TABLE job_leads ADD CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE;
+    END IF;
+
+    -- Drop old unique index on job_id if it exists
+    IF EXISTS (SELECT * FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = 'job_leads' AND INDEX_NAME = 'job_id') THEN
+        ALTER TABLE job_leads DROP INDEX job_id;
+    END IF;
+
+    -- Add new unique index on (job_id, profile_id)
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = 'job_leads' AND INDEX_NAME = 'unique_job_per_profile') THEN
+        ALTER TABLE job_leads ADD UNIQUE KEY unique_job_per_profile (job_id, profile_id);
+    END IF;
+END //
+DELIMITER ;
+CALL MigrateJobLeads();
+DROP PROCEDURE MigrateJobLeads;

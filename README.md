@@ -53,7 +53,12 @@ pip install -r requirements.txt
 ```
 
 ### 4. Database Initialization
-The system is designed to initialize and migrate itself. Simply running the Streamlit app or the master script will set up the necessary tables (`users`, `search_profiles`, `job_leads`).
+The system can initialize and migrate itself automatically via Python logic. However, for manual setup or auditing, a standalone `migration.sql` file is provided in the root directory.
+
+To manually initialize the database:
+```bash
+mysql -u your_user -p your_db_name < migration.sql
+```
 
 ### 5. Running the Application
 **Streamlit Dashboard (UI):**
