@@ -77,7 +77,7 @@ def run_matcher():
             
             with engine.connect() as conn:
                 conn.execute(
-                    text("UPDATE job_leads SET match_score = :score, ai_summary = :summary WHERE id = :id"),
+                    text("UPDATE job_leads SET match_score = :score, ai_summary = :summary, matched_at = CURRENT_TIMESTAMP WHERE id = :id"),
                     {"score": result.get('score', 0), "summary": result.get('summary', 'No summary'), "id": job_id}
                 )
                 conn.commit()

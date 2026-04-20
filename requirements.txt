@@ -1,0 +1,9 @@
+streamlit>=1.40.0
+python-dotenv
+SQLAlchemy
+pandas
+pymysql
+openai
+python-jobspy
+fpdf2
+requests
