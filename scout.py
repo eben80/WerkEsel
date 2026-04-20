@@ -130,13 +130,14 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
         location = query.get('location', 'Toronto, ON')
         is_remote = query.get('is_remote', False)
         country_indeed = query.get('country_indeed', 'canada')
+        sites = query.get('sites', ["linkedin", "indeed", "glassdoor"])
 
         loc_label = location if not is_remote else f"Remote ({country_indeed})"
-        print(f"🔍 Searching for '{search_term}' in {loc_label}...")
+        print(f"🔍 Searching for '{search_term}' in {loc_label} using sites {sites}...")
         
         try:
             jobs = scrape_jobs(
-                site_name=["linkedin", "indeed", "glassdoor"],
+                site_name=sites,
                 search_term=search_term,
                 location=location,
                 is_remote=is_remote,

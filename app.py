@@ -265,7 +265,7 @@ def show_profiles():
     with st.form("new_profile"):
         n_name = st.text_input("Profile Name")
         n_text = st.text_area("Profile Text (Your Bio/Experience)")
-        n_params = st.text_area("Search Params (JSON)", value='[{"search_term": "Product Manager", "location": "Toronto, ON", "is_remote": false}]')
+        n_params = st.text_area("Search Params (JSON)", value='[{"search_term": "Product Manager", "location": "Toronto, ON", "is_remote": false, "sites": ["linkedin", "indeed", "glassdoor"]}]')
         if st.form_submit_button("Create Profile"):
             try:
                 p_json = json.loads(n_params)
