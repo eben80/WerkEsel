@@ -121,6 +121,17 @@ def main():
     user = st.session_state.user
     st.sidebar.title(f"🫏 {user['name']}")
     if st.sidebar.button("Logout"):
+        # Google Auth Cleanup if initialized
+        if 'connected' in st.session_state:
+            creds_path = "google_credentials.json"
+            authenticator = Authenticate(
+                secret_credentials_path=creds_path,
+                cookie_name="werkesel_auth",
+                cookie_key=os.getenv("SECRET_KEY", "werkesel_cookie_key"),
+                redirect_uri=os.getenv("REDIRECT_URI", "http://localhost:8501")
+            )
+            authenticator.logout()
+
         st.session_state.user = None
         st.rerun()
 
@@ -191,7 +202,13 @@ def show_profiles():
             st.subheader("Search Parameters")
             q_term = st.text_input("Search Term", value=main_q.get('search_term', 'Product Manager'), key=f"term_{p_id}")
             q_loc = st.text_input("Location", value=main_q.get('location', 'Toronto, ON'), key=f"loc_{p_id}")
-            q_remote = st.checkbox("Remote Only", value=main_q.get('is_remote', False), key=f"rem_{p_id}")
+
+            # Use current params to determine default modes
+            default_modes = []
+            if any(q.get('is_remote') is False for q in params): default_modes.append("On-site/Hybrid")
+            if any(q.get('is_remote') is True for q in params): default_modes.append("Remote")
+
+            q_modes = st.multiselect("Work Modes", ["On-site/Hybrid", "Remote"], default=default_modes if default_modes else ["On-site/Hybrid"], key=f"modes_{p_id}")
             q_li_desc = st.checkbox("Fetch LinkedIn Descriptions", value=main_q.get('linkedin_fetch_description', True), key=f"li_desc_{p_id}")
 
             col1, col2, col3 = st.columns(3)
@@ -204,16 +221,18 @@ def show_profiles():
             is_active = st.checkbox("Active", value=p_active, key=f"active_{p_id}")
 
             if st.button("Update Profile", key=f"up_{p_id}"):
-                updated_params = [{
-                    "search_term": q_term,
-                    "location": q_loc,
-                    "is_remote": q_remote,
-                    "results_wanted": q_wanted,
-                    "hours_old": q_hours,
-                    "country_indeed": q_country,
-                    "sites": q_sites,
-                    "linkedin_fetch_description": q_li_desc
-                }]
+                updated_params = []
+                for mode in q_modes:
+                    updated_params.append({
+                        "search_term": q_term,
+                        "location": q_loc,
+                        "is_remote": (mode == "Remote"),
+                        "results_wanted": q_wanted,
+                        "hours_old": q_hours,
+                        "country_indeed": q_country,
+                        "sites": q_sites,
+                        "linkedin_fetch_description": q_li_desc
+                    })
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE search_profiles SET name=:n, profile_text=:t, search_params=:p, is_active=:a WHERE id=:id"),
                                  {"n": new_name, "t": new_text, "p": json.dumps(updated_params), "a": is_active, "id": p_id})
@@ -230,21 +249,23 @@ def show_profiles():
         c1, c2 = st.columns(2)
         n_term = c1.text_input("Search Term", value="Product Manager", key="new_p_term")
         n_loc = c2.text_input("Location", value="Toronto, ON", key="new_p_loc")
-        n_remote = st.checkbox("Remote Only", value=False, key="new_p_remote")
+        n_modes = st.multiselect("Work Modes", ["On-site/Hybrid", "Remote"], default=["On-site/Hybrid", "Remote"], key="new_p_modes")
         n_li_desc = st.checkbox("Fetch LinkedIn Descriptions", value=True, key="new_p_li_desc")
         n_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor", "zip_recruiter"], default=["linkedin", "indeed", "glassdoor"], key="new_p_sites")
 
         if st.button("Create Profile"):
-            n_params = [{
-                "search_term": n_term,
-                "location": n_loc,
-                "is_remote": n_remote,
-                "results_wanted": 20,
-                "hours_old": 24,
-                "country_indeed": "canada",
-                "sites": n_sites,
-                "linkedin_fetch_description": n_li_desc
-            }]
+            n_params = []
+            for mode in n_modes:
+                n_params.append({
+                    "search_term": n_term,
+                    "location": n_loc,
+                    "is_remote": (mode == "Remote"),
+                    "results_wanted": 20,
+                    "hours_old": 24,
+                    "country_indeed": "canada",
+                    "sites": n_sites,
+                    "linkedin_fetch_description": n_li_desc
+                })
             with engine.connect() as conn:
                 conn.execute(text("INSERT INTO search_profiles (user_id, name, profile_text, search_params) VALUES (:u, :n, :t, :p)"),
                              {"u": user_id, "n": n_name, "t": n_text, "p": json.dumps(n_params)})

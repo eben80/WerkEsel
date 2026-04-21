@@ -69,7 +69,14 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
         print(f"📭 No new jobs found for profile {profile_name}.")
         return
 
-    df = pd.concat(all_found_jobs).drop_duplicates(subset=['id'])
+    df = pd.concat(all_found_jobs)
+
+    # Deduplicate: if a job is found in both remote and non-remote searches,
+    # prefer the Remote flag.
+    if 'is_remote' in df.columns:
+        df = df.sort_values('is_remote', ascending=False)
+
+    df = df.drop_duplicates(subset=['id'])
 
     # Filter out jobs without descriptions (crucial for matching)
     total_before = len(df)
