@@ -31,6 +31,7 @@ def setup_db():
                 linkedin_url VARCHAR(255),
                 website_url VARCHAR(255),
                 header_template TEXT,
+                match_threshold INT DEFAULT 70,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -58,7 +59,7 @@ def setup_db():
             except Exception:
                 pass
 
-        for col in [("phone", "VARCHAR(50)"), ("location", "VARCHAR(255)"), ("linkedin_url", "VARCHAR(255)"), ("website_url", "VARCHAR(255)"), ("header_template", "TEXT")]:
+        for col in [("phone", "VARCHAR(50)"), ("location", "VARCHAR(255)"), ("linkedin_url", "VARCHAR(255)"), ("website_url", "VARCHAR(255)"), ("header_template", "TEXT"), ("match_threshold", "INT DEFAULT 70")]:
             try:
                 conn.execute(text(f"SELECT {col[0]} FROM users LIMIT 1"))
             except Exception:
@@ -81,7 +82,7 @@ def setup_db():
                 description TEXT,
                 is_remote BOOLEAN DEFAULT FALSE,
                 date_posted DATE,
-                status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived') DEFAULT 'new',
+            status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived', 'interview') DEFAULT 'new',
                 match_score INT DEFAULT NULL,
                 ai_summary TEXT DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

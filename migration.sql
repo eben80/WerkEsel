@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     linkedin_url VARCHAR(255),
     website_url VARCHAR(255),
     header_template TEXT,
+    match_threshold INT DEFAULT 70,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -56,6 +57,9 @@ BEGIN
     IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'header_template') THEN
         ALTER TABLE users ADD COLUMN header_template TEXT;
     END IF;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'match_threshold') THEN
+        ALTER TABLE users ADD COLUMN match_threshold INT DEFAULT 70;
+    END IF;
 END //
 DELIMITER ;
 CALL MigrateUsers();
@@ -76,6 +80,9 @@ BEGIN
     IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE CONSTRAINT_NAME = 'fk_profile' AND TABLE_NAME = 'job_leads') THEN
         ALTER TABLE job_leads ADD CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE;
     END IF;
+
+    -- Update Status Enum
+    ALTER TABLE job_leads MODIFY COLUMN status ENUM('new', 'approved', 'rejected', 'tailored', 'applied', 'archived', 'interview') DEFAULT 'new';
 
     -- Drop old unique index on job_id if it exists
     IF EXISTS (SELECT * FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = 'job_leads' AND INDEX_NAME = 'job_id') THEN

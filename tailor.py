@@ -85,8 +85,8 @@ def generate_pdf(filename, title, content, user_info):
     pdf.multi_cell(0, 6, text=clean_text) 
     
     pdf.output(filename)
-def run_tailor(profile_id=None):
-    """Runs the tailor for approved jobs. Optionally filtered by profile_id."""
+def run_tailor(profile_id=None, job_id=None):
+    """Runs the tailor for approved jobs. Optionally filtered by profile_id or job_id."""
     with engine.connect() as conn:
         sql = """
             SELECT jl.id, jl.job_id, jl.title, jl.company, jl.description, sp.profile_text,
@@ -100,8 +100,12 @@ def run_tailor(profile_id=None):
         if profile_id:
             sql += " AND jl.profile_id = :pid"
             params["pid"] = profile_id
+        if job_id:
+            sql += " AND jl.id = :jid"
+            params["jid"] = job_id
 
-        sql += " LIMIT 5"
+        if not job_id:
+            sql += " LIMIT 5"
 
         jobs = conn.execute(text(sql), params).fetchall()
 

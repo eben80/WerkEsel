@@ -143,24 +143,32 @@ def main():
 
 def show_dashboard():
     st.title("🚀 Dashboard")
+
+    # Get user threshold
+    with engine.connect() as conn:
+        u_info = conn.execute(text("SELECT match_threshold FROM users WHERE id = :uid"), {"uid": st.session_state.user['id']}).fetchone()
+        threshold = u_info[0] if u_info else 70
+
     # Stats query for all user's profiles
     with engine.connect() as conn:
         stats = conn.execute(text("""
             SELECT
                 COUNT(CASE WHEN status = 'new' AND match_score IS NULL THEN 1 END) as unscored,
-                COUNT(CASE WHEN status = 'new' AND match_score >= 70 THEN 1 END) as high_matches,
+                COUNT(CASE WHEN status = 'new' AND match_score >= :threshold THEN 1 END) as high_matches,
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) as pending_tailor,
-                COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply
+                COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply,
+                COUNT(CASE WHEN status = 'interview' THEN 1 END) as interviews
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
             WHERE sp.user_id = :user_id
-        """), {"user_id": st.session_state.user['id']}).fetchone()
+        """), {"user_id": st.session_state.user['id'], "threshold": threshold}).fetchone()
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("📥 Unscored", stats[0])
     m2.metric("🔥 High Matches", stats[1])
     m3.metric("🧵 Pending Tailor", stats[2])
     m4.metric("✅ Ready to Apply", stats[3])
+    m5.metric("🤝 Interviews", stats[4])
 
 def show_profiles():
     st.title("📂 Search Profiles")
@@ -299,10 +307,15 @@ def show_jobs():
 
     st.divider()
 
-    # Filtering
-    filter_status = st.pills("Filter Status:", ["All", "High Matches", "Approved", "Tailored", "Applied", "Rejected", "Archived"], default="All")
+    # Get user threshold
+    with engine.connect() as conn:
+        u_info = conn.execute(text("SELECT match_threshold FROM users WHERE id = :uid"), {"uid": st.session_state.user['id']}).fetchone()
+        threshold = u_info[0] if u_info else 70
 
-    status_map = {"High Matches": "new", "Approved": "approved", "Tailored": "tailored", "Applied": "applied", "Rejected": "rejected", "Archived": "archived"}
+    # Filtering
+    filter_status = st.pills("Filter Status:", ["All", "High Matches", "Approved", "Tailored", "Applied", "Interviewing", "Rejected", "Archived"], default="All")
+
+    status_map = {"High Matches": "new", "Approved": "approved", "Tailored": "tailored", "Applied": "applied", "Interviewing": "interview", "Rejected": "rejected", "Archived": "archived"}
 
     query = text("""
         SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
@@ -319,7 +332,7 @@ def show_jobs():
         return
 
     if filter_status == "High Matches":
-        df = df[(df['status'] == 'new') & (df['match_score'] >= 70)]
+        df = df[(df['status'] == 'new') & (df['match_score'] >= threshold)]
     elif filter_status != "All":
         df = df[df['status'] == status_map[filter_status]]
 
@@ -345,15 +358,46 @@ def show_jobs():
 
             with c2:
                 if row['status'] == 'new':
-                    if st.button("✅ Approve", key=f"ap_{row['id']}"):
+                    if st.button("✅ Approve", key=f"ap_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='approved' WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
+                    if st.button("❌ Reject", key=f"rj_{row['id']}", use_container_width=True):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='rejected' WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
+
+                elif row['status'] == 'approved':
+                    if st.button("🧵 Tailor Now", key=f"tl_{row['id']}", use_container_width=True):
+                        with st.status("Tailoring...", expanded=True) as status:
+                            import io
+                            from contextlib import redirect_stdout
+                            f = io.StringIO()
+                            with redirect_stdout(f):
+                                # Pass job_id for targeted tailoring
+                                tailor.run_tailor(job_id=row['id'])
+                            st.code(f.getvalue())
+                            status.update(label="Tailoring complete!", state="complete")
+                            if st.button("Refresh", key=f"rf_{row['id']}"): st.rerun()
+
                 elif row['status'] == 'tailored':
-                    if st.button("🚀 Applied", key=f"ma_{row['id']}"):
+                    if st.button("🚀 Mark Applied", key=f"ma_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
+
+                elif row['status'] == 'applied':
+                    if st.button("🤝 Interview", key=f"int_{row['id']}", use_container_width=True):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='interview' WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
+                    if st.button("👎 Negative", key=f"neg_{row['id']}", use_container_width=True):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
 
@@ -363,7 +407,7 @@ def show_user_settings():
     user_id = user['id']
 
     with engine.connect() as conn:
-        curr_user = conn.execute(text("SELECT name, phone, location, linkedin_url, website_url, header_template FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+        curr_user = conn.execute(text("SELECT name, phone, location, linkedin_url, website_url, header_template, match_threshold FROM users WHERE id = :id"), {"id": user_id}).fetchone()
 
     with st.form("settings_form"):
         st.subheader("Contact Information")
@@ -372,6 +416,9 @@ def show_user_settings():
         new_location = st.text_input("Location (City, State/Prov)", value=curr_user[2] or "")
         new_linkedin = st.text_input("LinkedIn URL", value=curr_user[3] or "")
         new_website = st.text_input("Website/Portfolio URL", value=curr_user[4] or "")
+
+        st.subheader("Matching & Tailoring")
+        new_threshold = st.number_input("Match Score Threshold (0-100)", value=curr_user[6] or 70, min_value=0, max_value=100)
 
         st.subheader("Resume Header Template")
         st.caption("Use placeholders: {name}, {email}, {phone}, {location}, {linkedin}, {website}")
@@ -382,10 +429,10 @@ def show_user_settings():
             with engine.connect() as conn:
                 conn.execute(text("""
                     UPDATE users
-                    SET name = :n, phone = :p, location = :l, linkedin_url = :li, website_url = :w, header_template = :h
+                    SET name = :n, phone = :p, location = :l, linkedin_url = :li, website_url = :w, header_template = :h, match_threshold = :mt
                     WHERE id = :id
                 """), {
-                    "n": new_name, "p": new_phone, "l": new_location, "li": new_linkedin, "w": new_website, "h": new_template, "id": user_id
+                    "n": new_name, "p": new_phone, "l": new_location, "li": new_linkedin, "w": new_website, "h": new_template, "mt": new_threshold, "id": user_id
                 })
                 conn.commit()
             st.success("Settings updated!")
