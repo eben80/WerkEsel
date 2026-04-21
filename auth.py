@@ -55,41 +55,52 @@ def login_user(engine, email, password):
     return None
 
 def exchange_google_code(code):
-    """Exchanges an authorization code for user info."""
+    """Exchanges an authorization code for user info. Returns (info, error_msg)"""
     import requests
     import json
     creds_path = os.getenv("GOOGLE_CREDS_PATH", "client_secret.json")
     if not os.path.exists(creds_path):
-        return None
+        return None, f"Credentials file not found at {creds_path}"
 
-    with open(creds_path, 'r') as f:
-        config = json.load(f).get('web')
+    try:
+        with open(creds_path, 'r') as f:
+            config = json.load(f).get('web')
+    except Exception as e:
+        return None, f"Failed to parse credentials file: {e}"
+
+    # Redirect URI must match EXACTLY what was sent in the initial request
+    redirect_uri = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
 
     data = {
         "code": code,
         "client_id": config['client_id'],
         "client_secret": config['client_secret'],
-        "redirect_uri": os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/"),
+        "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
     }
 
-    response = requests.post("https://oauth2.googleapis.com/token", data=data)
-    if response.status_code != 200:
-        print(f"Token exchange failed: {response.text}")
-        return None
+    try:
+        response = requests.post("https://oauth2.googleapis.com/token", data=data)
+        if response.status_code != 200:
+            error_text = response.text
+            print(f"Token exchange failed: {error_text}")
+            return None, f"Token exchange failed: {error_text}"
 
-    tokens = response.json()
-    access_token = tokens.get("access_token")
+        tokens = response.json()
+        access_token = tokens.get("access_token")
 
-    # Get User Info using access token
-    user_info_res = requests.get(
-        "https://www.googleapis.com/oauth2/v3/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"}
-    )
+        # Get User Info using access token
+        user_info_res = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
 
-    if user_info_res.status_code == 200:
-        return user_info_res.json()
-    return None
+        if user_info_res.status_code == 200:
+            return user_info_res.json(), None
+        else:
+            return None, f"User info fetch failed: {user_info_res.text}"
+    except Exception as e:
+        return None, f"Auth request failed: {e}"
 
 def signup_user(engine, email, password, name):
     hashed = hash_password(password)

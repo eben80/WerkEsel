@@ -48,9 +48,10 @@ class PatchedAuthenticate(streamlit_google_auth.Authenticate):
             # 2. Check for redirect code
             auth_code = st.query_params.get("code")
             if auth_code:
+                # Clear code from URL immediately
                 st.query_params.clear()
                 # Manual exchange using auth.py logic which is PKCE-independent
-                id_info = auth.exchange_google_code(auth_code)
+                id_info, error = auth.exchange_google_code(auth_code)
                 if id_info:
                     st.session_state["connected"] = True
                     # Normalize to what the library expects
@@ -59,7 +60,7 @@ class PatchedAuthenticate(streamlit_google_auth.Authenticate):
                     self.cookie_handler.set_cookie(id_info.get("name"), id_info.get("email"), id_info.get("picture"), id_info.get("id"))
                     st.rerun()
                 else:
-                    st.error("Google authentication failed.")
+                    st.error(f"Google authentication failed: {error}")
 
 def get_authenticator():
     creds_path = os.getenv("GOOGLE_CREDS_PATH", "client_secret.json")
