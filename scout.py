@@ -67,7 +67,7 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
 
     if not all_found_jobs:
         print(f"📭 No new jobs found for profile {profile_name}.")
-        return
+        return 0
 
     df = pd.concat(all_found_jobs)
 

@@ -164,9 +164,9 @@ def run_tailor(profile_id=None, job_id=None):
                 full_cl = result.get("cover_letter", "")
                 
                 # Use db_id for file naming to be consistent with app.py's expected patterns
-                # Pass empty title for Resume as requested
+                # Pass empty title for both Resume and Cover Letter as requested
                 generate_pdf(f"resumes/{db_id}_Resume.pdf", "", full_resume, user_info)
-                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl, user_info)
+                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", "", full_cl, user_info)
 
                 conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                 conn.commit()
