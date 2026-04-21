@@ -97,8 +97,8 @@ bash process.sh
 4. **Login**: Once verified, the user can log in.
 
 ### Google Login
-- Integrated via `streamlit-google-auth`.
-- Requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `REDIRECT_URI` in `.env`.
+- Integrated via Google Identity Services (GSI).
+- Requires `GOOGLE_CLIENT_ID` in `.env`.
 
 ---
 

@@ -7,8 +7,6 @@ import matcher
 import tailor
 from sqlalchemy import text, bindparam
 from dotenv import load_dotenv
-from streamlit_google_auth import Authenticate
-
 # --- CONFIG ---
 load_dotenv()
 
@@ -34,43 +32,18 @@ if "profile_id" not in st.session_state:
 def login_page():
     st.title("🫏 WerkEsel: Login")
 
-    # Generate google_credentials.json if needed
-    creds_path = "google_credentials.json"
-    if not os.path.exists(creds_path) and os.getenv("GOOGLE_CLIENT_ID"):
-        import json
-        creds = {
-            "web": {
-                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                "project_id": os.getenv("GOOGLE_PROJECT_ID", "werkesel"),
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
-                "redirect_uris": [os.getenv("REDIRECT_URI", "http://localhost:8501")]
-            }
-        }
-        with open(creds_path, "w") as f:
-            json.dump(creds, f)
-
-    # Google Auth Setup
-    authenticator = Authenticate(
-        secret_credentials_path=creds_path,
-        cookie_name="werkesel_auth",
-        cookie_key=os.getenv("SECRET_KEY", "werkesel_cookie_key"),
-        redirect_uri=os.getenv("REDIRECT_URI", "http://localhost:8501")
-    )
-
-    # Check if user is already authenticated via Google
-    authenticator.check_authentification()
-    if st.session_state.get('connected'):
-        user_info = {
-            'email': st.session_state['user_info'].get('email'),
-            'sub': st.session_state['user_info'].get('sub'),
-            'name': st.session_state['user_info'].get('name')
-        }
-        user = auth.get_or_create_google_user(engine, user_info)
-        st.session_state.user = user
-        st.rerun()
+    # Check for Google Token in Query Params
+    query_params = st.query_params
+    if "g_token" in query_params:
+        token = query_params["g_token"]
+        id_info = auth.verify_google_token(token)
+        if id_info:
+            user = auth.get_or_create_google_user(engine, id_info)
+            st.session_state.user = user
+            st.query_params.clear() # Clean URL
+            st.rerun()
+        else:
+            st.error("Invalid Google session. Please try again.")
 
     tab1, tab2, tab3, tab4 = st.tabs(["Login", "Sign Up", "Verify Email", "Google Login"])
 
@@ -110,7 +83,42 @@ def login_page():
 
     with tab4:
         st.write("Sign in with your Google account to continue.")
-        authenticator.login()
+
+        # User provided Client ID
+        CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
+
+        # Custom HTML Component for Google Login
+        import streamlit.components.v1 as components
+
+        # The script will capture the credential and redirect the parent window with it
+        google_login_html = f"""
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
+        <script>
+            function handleGoogleSignIn(response) {{
+                const token = response.credential;
+                // Redirect parent window with token in URL
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('g_token', token);
+                window.parent.location.href = url.toString();
+            }}
+        </script>
+        <div id="g_id_onload"
+             data-client_id="{CLIENT_ID}"
+             data-context="signin"
+             data-ux_mode="popup"
+             data-callback="handleGoogleSignIn"
+             data-auto_prompt="false">
+        </div>
+        <div class="g_id_signin"
+             data-type="standard"
+             data-shape="rectangular"
+             data-theme="outline"
+             data-text="signin_with"
+             data-size="large"
+             data-logo_alignment="left">
+        </div>
+        """
+        components.html(google_login_html, height=100)
 
 # --- MAIN APP ---
 def main():
@@ -121,18 +129,10 @@ def main():
     user = st.session_state.user
     st.sidebar.title(f"🫏 {user['name']}")
     if st.sidebar.button("Logout"):
-        # Google Auth Cleanup if initialized
-        if 'connected' in st.session_state:
-            creds_path = "google_credentials.json"
-            authenticator = Authenticate(
-                secret_credentials_path=creds_path,
-                cookie_name="werkesel_auth",
-                cookie_key=os.getenv("SECRET_KEY", "werkesel_cookie_key"),
-                redirect_uri=os.getenv("REDIRECT_URI", "http://localhost:8501")
-            )
-            authenticator.logout()
-
         st.session_state.user = None
+        # Clear connected state for GSI if we were tracking it
+        if 'connected' in st.session_state:
+            del st.session_state['connected']
         st.rerun()
 
     menu = ["Dashboard", "Profiles", "Jobs", "User Settings"]
