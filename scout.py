@@ -63,6 +63,17 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
     df = df[['id', 'site', 'title', 'company', 'location', 'job_url', 'description', 'date_posted', 'is_remote', 'profile_id']]
     df = df.rename(columns={'id': 'job_id'})
 
+    # --- VERBOSE DESCRIPTION REPORTING ---
+    print(f"\n📊 Scraping Summary for {profile_name}:")
+    for site in df['site'].unique():
+        site_df = df[df['site'] == site]
+        total = len(site_df)
+        with_desc = site_df['description'].notna().sum()
+        missing = total - with_desc
+        print(f"   📍 {site.capitalize()}: {total} jobs found, {with_desc} with descriptions, {missing} missing.")
+        if missing > 0 and site.lower() == 'linkedin':
+            print("      ⚠️ Note: LinkedIn descriptions are often blocked on servers. Try running from a desktop or using proxies.")
+
     new_entries = 0
     for _, row in df.iterrows():
         try:

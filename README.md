@@ -112,6 +112,21 @@ The system automatically manages the following tables:
 
 ---
 
+## 🛠️ Troubleshooting & Tips
+
+### Missing Descriptions (especially LinkedIn)
+If you run the scout on a server (AWS, DigitalOcean, etc.), LinkedIn may block the scraper, resulting in jobs with "NULL" descriptions.
+- **Symptoms**: Scout reports success but Matcher says "No valid jobs found" (due to missing descriptions).
+- **Solutions**:
+    - Run the scout manually from a desktop/laptop and sync the database.
+    - Use residential proxies if your scraping library supports them.
+    - Focus on Indeed and Glassdoor, which are generally more server-friendly.
+
+### OpenAI API Errors (401)
+If you see `Incorrect API key provided`, ensure your `.env` file contains a real OpenAI key and not the placeholder `your_openai_key_here`.
+
+---
+
 ## 🏗️ Technical Architecture
 
 1. **`app.py`**: The main Streamlit interface for user interaction and profile management.

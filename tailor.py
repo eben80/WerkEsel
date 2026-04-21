@@ -9,7 +9,15 @@ from db_utils import engine
 # --- CONFIG ---
 # Load the variables from the .env file
 load_dotenv()
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY")) 
+API_KEY = os.environ.get("OPENAI_API_KEY")
+
+def is_key_valid(key):
+    return key and not key.startswith("your_") and not key.endswith("here")
+
+if not is_key_valid(API_KEY):
+    print("❌ ERROR: OpenAI API key is missing or is a placeholder. Update your .env file.")
+
+client = OpenAI(api_key=API_KEY)
 
 os.makedirs("resumes", exist_ok=True)
 
