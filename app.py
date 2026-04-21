@@ -423,7 +423,7 @@ def show_jobs():
         with st.container(border=True):
             sel_col, c1, c2 = st.columns([0.2, 3.8, 1])
             with sel_col:
-                st.checkbox("", key=f"sel_{db_id}")
+                st.checkbox("Select job", key=f"sel_{db_id}", label_visibility="collapsed")
             with c1:
                 st.subheader(f"{row['title']} @ {row['company']}")
                 st.caption(f"Score: {row['match_score']}% | Status: {row['status'].upper()}")
