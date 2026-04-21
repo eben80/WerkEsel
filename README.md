@@ -102,6 +102,7 @@ bash process.sh
 - **Configuration (Google Cloud Console)**:
     - **Authorized JavaScript Origins**: `https://tefinitely.com`
     - **Authorized Redirect URIs**: `https://tefinitely.com/werkesel/`
+    - **Note on `origin=null`**: If the inline button fails with a 400 error, it is likely due to the Streamlit iframe. Use the "Direct Redirect" button in the app.
     - Ensure the OAuth consent screen is set to "Production" or add your email as a test user.
 
 ---

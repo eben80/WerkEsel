@@ -32,6 +32,24 @@ if "profile_id" not in st.session_state:
 def login_page():
     st.title("🫏 WerkEsel: Login")
 
+    # JavaScript to handle URL fragments (for Direct Redirect flow)
+    fragment_js = """
+    <script>
+    const hash = window.parent.location.hash;
+    if (hash && hash.includes('id_token=')) {
+        const params = new URLSearchParams(hash.substring(1));
+        const token = params.get('id_token');
+        if (token) {
+            const url = new URL(window.parent.location.href);
+            url.hash = '';
+            url.searchParams.set('g_token', token);
+            window.parent.location.href = url.toString();
+        }
+    }
+    </script>
+    """
+    st.components.v1.html(fragment_js, height=0)
+
     # Check for Google Token in Query Params
     query_params = st.query_params
     if "g_token" in query_params:
@@ -88,11 +106,8 @@ def login_page():
         CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
         REDIRECT_URI = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
 
-        # Custom HTML Component for Google Login
+        # Option 1: Inline GSI Button (Might suffer from origin=null in some iframes)
         import streamlit.components.v1 as components
-
-        # Enhanced GSI implementation with ITP support and FedCM
-        # Using redirect mode if popup is blocked by security policies
         google_login_html = f"""
         <div class="google-btn-container">
             <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -100,12 +115,10 @@ def login_page():
                 function handleGoogleSignIn(response) {{
                     const token = response.credential;
                     try {{
-                        // Attempt to redirect parent window
                         const url = new URL(window.parent.location.href);
                         url.searchParams.set('g_token', token);
                         window.parent.location.href = url.toString();
                     }} catch (e) {{
-                        // Fallback if parent access is blocked
                         window.location.href = "{REDIRECT_URI}?g_token=" + token;
                     }}
                 }}
@@ -129,10 +142,19 @@ def login_page():
             </div>
         </div>
         """
-        components.html(google_login_html, height=100)
+        components.html(google_login_html, height=80)
+
+        st.write("--- OR ---")
+
+        # Option 2: Direct Redirect (Safest against origin=null)
+        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=id_token&scope=openid%20email%20profile&nonce=random_nonce"
+        st.link_button("🌐 Sign in with Google (Direct Redirect)", auth_url, use_container_width=True, help="Use this if the button above shows an 'invalid_request' error.")
 
         st.divider()
-        st.caption("🔒 Security Note: If the button above doesn't work, ensure 'https://tefinitely.com' is added to your Authorized JavaScript Origins in the Google Cloud Console.")
+        st.caption("🔒 **Troubleshooting for Entwicklers**:")
+        st.caption("If you see 'origin=null', it is because Streamlit runs in an iframe. Use the **Direct Redirect** button above. Ensure the following are set in your Google Cloud Console:")
+        st.caption("- **Authorized JavaScript Origins**: `https://tefinitely.com` (and `http://localhost:8501`) ")
+        st.caption("- **Authorized Redirect URIs**: `https://tefinitely.com/werkesel/` ")
 
 # --- MAIN APP ---
 def main():
