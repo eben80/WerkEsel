@@ -50,8 +50,9 @@ def exchange_google_code(code):
     redirect_uri = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
 
     if not client_secret:
-        print("❌ Error: GOOGLE_CLIENT_SECRET not set in .env")
-        return None
+        error_msg = "GOOGLE_CLIENT_SECRET not set in .env"
+        print(f"❌ {error_msg}")
+        return {"error": error_msg}
 
     token_url = "https://oauth2.googleapis.com/token"
     data = {
@@ -64,10 +65,11 @@ def exchange_google_code(code):
 
     response = requests.post(token_url, data=data)
     if response.status_code == 200:
-        return response.json().get("id_token")
+        return {"id_token": response.json().get("id_token")}
     else:
-        print(f"❌ Code exchange error: {response.text}")
-        return None
+        error_msg = f"Code exchange error: {response.status_code} - {response.text}"
+        print(f"❌ {error_msg}")
+        return {"error": error_msg}
 
 def verify_google_token(token):
     try:

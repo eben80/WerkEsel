@@ -48,15 +48,21 @@ def login_page():
     # 2. Handle Auth Code (from Direct Redirect)
     if "code" in query_params:
         code = query_params["code"]
-        token = auth.exchange_google_code(code)
-        if token:
+        exchange_result = auth.exchange_google_code(code)
+
+        if "id_token" in exchange_result:
+            token = exchange_result["id_token"]
             id_info = auth.verify_google_token(token)
             if id_info:
                 user = auth.get_or_create_google_user(engine, id_info)
                 st.session_state.user = user
                 st.query_params.clear()
                 st.rerun()
-        st.error("Google authentication failed. Please try again.")
+            else:
+                st.error("Google token verification failed.")
+        else:
+            st.error(f"Google authentication failed: {exchange_result.get('error', 'Unknown error')}")
+            st.info("Check if GOOGLE_CLIENT_SECRET is correct and the Redirect URI matches Google Cloud Console.")
 
     # 2. Handle GSI Token (from Inline Button)
     if "g_token" in query_params:
