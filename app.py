@@ -168,18 +168,27 @@ def show_dashboard():
                 COUNT(CASE WHEN status = 'new' AND match_score >= :threshold THEN 1 END) as high_matches,
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) as pending_tailor,
                 COUNT(CASE WHEN status = 'tailored' THEN 1 END) as ready_to_apply,
-                COUNT(CASE WHEN status = 'interview' THEN 1 END) as interviews
+                COUNT(CASE WHEN status = 'applied' THEN 1 END) as applied,
+                COUNT(CASE WHEN status = 'interview' THEN 1 END) as interviews,
+                COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
+                COUNT(CASE WHEN status = 'archived' THEN 1 END) as archived
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
             WHERE sp.user_id = :user_id
         """), {"user_id": st.session_state.user['id'], "threshold": threshold}).fetchone()
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("📥 Unscored", stats[0])
-    m2.metric("🔥 High Matches", stats[1])
-    m3.metric("🧵 Pending Tailor", stats[2])
-    m4.metric("✅ Ready to Apply", stats[3])
-    m5.metric("🤝 Interviews", stats[4])
+    # Display metrics in 2 rows
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("📥 Unscored", stats[0])
+    c2.metric("🔥 High Matches", stats[1])
+    c3.metric("🧵 Pending Tailor", stats[2])
+    c4.metric("✅ Ready to Apply", stats[3])
+
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("🚀 Applied", stats[4])
+    c6.metric("🤝 Interviews", stats[5])
+    c7.metric("❌ Rejected", stats[6])
+    c8.metric("🗑️ Archived", stats[7])
 
 def show_profiles():
     st.title("📂 Search Profiles")
@@ -239,6 +248,24 @@ def show_profiles():
                     conn.commit()
                 st.success("Profile updated!")
                 st.rerun()
+
+            st.divider()
+            if st.button("💀 Delete Profile Permanently", key=f"del_p_{p_id}"):
+                st.session_state[f"confirm_del_{p_id}"] = True
+
+            if st.session_state.get(f"confirm_del_{p_id}"):
+                st.warning(f"Are you sure you want to delete profile '{p_name}' and ALL associated jobs?")
+                if st.button("Yes, Delete Everything", key=f"conf_del_{p_id}"):
+                    with engine.connect() as conn:
+                        # ON DELETE CASCADE handles jobs
+                        conn.execute(text("DELETE FROM search_profiles WHERE id = :id"), {"id": p_id})
+                        conn.commit()
+                    st.success("Profile deleted!")
+                    del st.session_state[f"confirm_del_{p_id}"]
+                    st.rerun()
+                if st.button("Cancel", key=f"canc_del_{p_id}"):
+                    del st.session_state[f"confirm_del_{p_id}"]
+                    st.rerun()
 
     st.subheader("Add New Profile")
     with st.container(border=True):
@@ -357,9 +384,46 @@ def show_jobs():
     elif filter_status != "All":
         df = df[df['status'] == status_map[filter_status]]
 
+    if df.empty:
+        st.info("No jobs found for this filter.")
+        return
+
+    # --- BATCH ACTIONS ---
+    batch_col1, batch_col2 = st.columns([4, 1])
+    with batch_col2:
+        if st.button("💀 Delete Selected", use_container_width=True):
+            st.session_state.confirm_batch_del = True
+
+    if st.session_state.get('confirm_batch_del'):
+        selected_ids = [row['id'] for _, row in df.iterrows() if st.session_state.get(f"sel_{row['id']}")]
+        if not selected_ids:
+            st.warning("No jobs selected.")
+            del st.session_state.confirm_batch_del
+        else:
+            st.error(f"Are you sure you want to delete {len(selected_ids)} jobs?")
+            if st.button("Yes, Delete Batch"):
+                with engine.connect() as conn:
+                    conn.execute(text("DELETE FROM job_leads WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)), {"ids": selected_ids})
+                    conn.commit()
+                st.success("Jobs deleted!")
+                del st.session_state.confirm_batch_del
+                st.rerun()
+            if st.button("Cancel Batch"):
+                del st.session_state.confirm_batch_del
+                st.rerun()
+
+    # Select All
+    if "select_all_state" not in st.session_state: st.session_state.select_all_state = False
+    def toggle_all():
+        for i in df['id']: st.session_state[f"sel_{i}"] = st.session_state.select_all_cb
+    st.checkbox("Select All Visible", key="select_all_cb", on_change=toggle_all)
+
     for _, row in df.iterrows():
+        db_id = row['id']
         with st.container(border=True):
-            c1, c2 = st.columns([4, 1])
+            sel_col, c1, c2 = st.columns([0.2, 3.8, 1])
+            with sel_col:
+                st.checkbox("", key=f"sel_{db_id}")
             with c1:
                 st.subheader(f"{row['title']} @ {row['company']}")
                 st.caption(f"Score: {row['match_score']}% | Status: {row['status'].upper()}")
@@ -404,19 +468,33 @@ def show_jobs():
                             if st.button("Refresh", key=f"rf_{row['id']}"): st.rerun()
 
                 elif row['status'] == 'tailored':
-                    if st.button("🚀 Mark Applied", key=f"ma_{row['id']}", use_container_width=True):
+                    if st.button("🚀 Apply", key=f"ma_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
 
                 elif row['status'] == 'applied':
+                    if st.button("✅ Applied", key=f"ma_{row['id']}", use_container_width=True, help="Click to unmark as applied"):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='tailored', applied_at=NULL WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
+
                     if st.button("🤝 Interview", key=f"int_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='interview' WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
                     if st.button("👎 Negative", key=f"neg_{row['id']}", use_container_width=True):
+                        with engine.connect() as conn:
+                            conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": row['id']})
+                            conn.commit()
+                        st.rerun()
+
+                # Global Archive for any job
+                if row['status'] not in ['archived', 'rejected']:
+                    if st.button("🗑️ Archive", key=f"arc_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": row['id']})
                             conn.commit()
