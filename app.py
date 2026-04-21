@@ -86,39 +86,53 @@ def login_page():
 
         # User provided Client ID
         CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
+        REDIRECT_URI = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
 
         # Custom HTML Component for Google Login
         import streamlit.components.v1 as components
 
-        # The script will capture the credential and redirect the parent window with it
+        # Enhanced GSI implementation with ITP support and FedCM
+        # Using redirect mode if popup is blocked by security policies
         google_login_html = f"""
-        <script src="https://accounts.google.com/gsi/client" async defer></script>
-        <script>
-            function handleGoogleSignIn(response) {{
-                const token = response.credential;
-                // Redirect parent window with token in URL
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('g_token', token);
-                window.parent.location.href = url.toString();
-            }}
-        </script>
-        <div id="g_id_onload"
-             data-client_id="{CLIENT_ID}"
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleGoogleSignIn"
-             data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="rectangular"
-             data-theme="outline"
-             data-text="signin_with"
-             data-size="large"
-             data-logo_alignment="left">
+        <div class="google-btn-container">
+            <script src="https://accounts.google.com/gsi/client" async defer></script>
+            <script>
+                function handleGoogleSignIn(response) {{
+                    const token = response.credential;
+                    try {{
+                        // Attempt to redirect parent window
+                        const url = new URL(window.parent.location.href);
+                        url.searchParams.set('g_token', token);
+                        window.parent.location.href = url.toString();
+                    }} catch (e) {{
+                        // Fallback if parent access is blocked
+                        window.location.href = "{REDIRECT_URI}?g_token=" + token;
+                    }}
+                }}
+            </script>
+            <div id="g_id_onload"
+                 data-client_id="{CLIENT_ID}"
+                 data-context="signin"
+                 data-ux_mode="popup"
+                 data-callback="handleGoogleSignIn"
+                 data-auto_prompt="false"
+                 data-itp_support="true"
+                 data-use_fedcm_for_prompt="true">
+            </div>
+            <div class="g_id_signin"
+                 data-type="standard"
+                 data-shape="rectangular"
+                 data-theme="outline"
+                 data-text="signin_with"
+                 data-size="large"
+                 data-logo_alignment="left">
+            </div>
         </div>
         """
         components.html(google_login_html, height=100)
+
+        st.divider()
+        st.caption("🔒 Security Note: If the button above doesn't work, ensure 'https://tefinitely.com' is added to your Authorized JavaScript Origins in the Google Cloud Console.")
 
 # --- MAIN APP ---
 def main():

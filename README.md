@@ -99,6 +99,10 @@ bash process.sh
 ### Google Login
 - Integrated via Google Identity Services (GSI).
 - Requires `GOOGLE_CLIENT_ID` in `.env`.
+- **Configuration (Google Cloud Console)**:
+    - **Authorized JavaScript Origins**: `https://tefinitely.com`
+    - **Authorized Redirect URIs**: `https://tefinitely.com/werkesel/`
+    - Ensure the OAuth consent screen is set to "Production" or add your email as a test user.
 
 ---
 
