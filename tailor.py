@@ -72,11 +72,16 @@ def generate_pdf(filename, title, content, user_info):
     clean_text = str(content)
     replacements = {
         "**": "", "__": "", "#": "", "---": "", # Strip Markdown
-        "&amp;": "&", "": "-", "–": "-", "—": "-"
+        "&amp;": "&", "": "-", "–": "-", "—": "-",
+        "\u2022": "-", "\u2013": "-", "\u2014": "-", "\u2019": "'", "\u201c": '"', "\u201d": '"'
     }
     for old, new in replacements.items():
         clean_text = clean_text.replace(old, new)
     
+    # Force encode to latin-1 while replacing unencodable chars with '?'
+    # This prevents FPDF crashes while keeping the text readable
+    clean_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
+
     # Remove any leading/trailing whitespace the AI might have added
     clean_text = clean_text.strip()
 

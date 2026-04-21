@@ -97,10 +97,10 @@ bash process.sh
 4. **Login**: Once verified, the user can log in.
 
 ### Google Login
-- Integrated via `streamlit-google-auth`.
+- Integrated via `streamlit-google-auth` (with custom patch for production stability).
 - **Requirements**:
     - `client_secret.json` file in the root directory (or path set via `GOOGLE_CREDS_PATH`).
-    - Environment variables: `SECRET_KEY`, `REDIRECT_URI`.
+    - Environment variables: `REDIRECT_URI`, `SECRET_KEY`.
 - **Configuration (Google Cloud Console)**:
     - **Authorized JavaScript Origins**: `https://tefinitely.com`
     - **Authorized Redirect URIs**: `https://tefinitely.com/werkesel/`

@@ -7,8 +7,6 @@ import matcher
 import tailor
 from sqlalchemy import text, bindparam
 from dotenv import load_dotenv
-from streamlit_google_auth import Authenticate
-
 # --- CONFIG ---
 load_dotenv()
 
@@ -30,11 +28,44 @@ if "user" not in st.session_state:
 if "profile_id" not in st.session_state:
     st.session_state.profile_id = None
 
+import streamlit_google_auth
+
+# --- PATCHED AUTHENTICATE CLASS ---
+# We subclass the library's Authenticate class to fix the 'Missing code verifier' error
+# while keeping the library's UI and structure.
+class PatchedAuthenticate(streamlit_google_auth.Authenticate):
+    def check_authentification(self):
+        """Fixes the InvalidGrantError: Missing code verifier by using manual exchange."""
+        if not st.session_state.get('connected'):
+            # 1. Check for valid cookie
+            token = self.cookie_handler.get_cookie()
+            if token:
+                user_info = {'name': token['name'], 'email': token['email'], 'picture': token['picture'], 'id': token['oauth_id']}
+                st.session_state["connected"] = True
+                st.session_state["user_info"] = user_info
+                return
+
+            # 2. Check for redirect code
+            auth_code = st.query_params.get("code")
+            if auth_code:
+                st.query_params.clear()
+                # Manual exchange using auth.py logic which is PKCE-independent
+                id_info = auth.exchange_google_code(auth_code)
+                if id_info:
+                    st.session_state["connected"] = True
+                    # Normalize to what the library expects
+                    id_info['id'] = id_info.get('sub')
+                    st.session_state["user_info"] = id_info
+                    self.cookie_handler.set_cookie(id_info.get("name"), id_info.get("email"), id_info.get("picture"), id_info.get("id"))
+                    st.rerun()
+                else:
+                    st.error("Google authentication failed.")
+
 def get_authenticator():
     creds_path = os.getenv("GOOGLE_CREDS_PATH", "client_secret.json")
     if not os.path.exists(creds_path):
         return None
-    return Authenticate(
+    return PatchedAuthenticate(
         secret_credentials_path=creds_path,
         cookie_name="werkesel_google_auth",
         cookie_key=os.getenv("SECRET_KEY", "werkesel_cookie_key"),
@@ -45,21 +76,19 @@ def get_authenticator():
 def login_page():
     st.title("🫏 WerkEsel: Login")
 
-    # Initialize Streamlit Google Auth
     authenticator = get_authenticator()
     if not authenticator:
-        st.error("Critical Error: Google Credentials file (client_secret.json) not found.")
+        st.error("Critical Error: client_secret.json not found.")
         return
 
-    # Check if user is already authenticated via library
+    # Call the patched method
     authenticator.check_authentification()
 
     if st.session_state.get('connected'):
         g_info = st.session_state['user_info']
-        # Normalize fields for our auth logic
         id_info = {
             'email': g_info.get('email'),
-            'sub': g_info.get('sub') or g_info.get('oauth_id'),
+            'sub': g_info.get('sub') or g_info.get('id'),
             'name': g_info.get('name')
         }
         user = auth.get_or_create_google_user(engine, id_info)
@@ -115,7 +144,6 @@ def main():
     user = st.session_state.user
     st.sidebar.title(f"🫏 {user['name']}")
     if st.sidebar.button("Logout"):
-        # Google Auth Logout
         authenticator = get_authenticator()
         if authenticator:
             authenticator.logout()
