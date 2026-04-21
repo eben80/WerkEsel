@@ -53,7 +53,7 @@ class PatchedAuthenticate(streamlit_google_auth.Authenticate):
                 </a>
             </div>
             """
-            st.components.v1.html(html_content, height=70)
+            st.markdown(html_content, unsafe_allow_html=True)
 
     def check_authentification(self):
         """Fixes the InvalidGrantError: Missing code verifier by using manual exchange."""
