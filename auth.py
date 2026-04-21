@@ -42,6 +42,33 @@ def send_verification_email(email, name, code):
         return False
     return True
 
+def exchange_google_code(code):
+    """Exchanges an authorization code for an ID token."""
+    import requests
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
+
+    if not client_secret:
+        print("❌ Error: GOOGLE_CLIENT_SECRET not set in .env")
+        return None
+
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }
+
+    response = requests.post(token_url, data=data)
+    if response.status_code == 200:
+        return response.json().get("id_token")
+    else:
+        print(f"❌ Code exchange error: {response.text}")
+        return None
+
 def verify_google_token(token):
     try:
         # Use the specific Client ID provided by the user in the snippet

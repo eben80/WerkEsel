@@ -32,26 +32,33 @@ if "profile_id" not in st.session_state:
 def login_page():
     st.title("🫏 WerkEsel: Login")
 
-    # JavaScript to handle URL fragments (for Direct Redirect flow)
-    fragment_js = """
-    <script>
-    const hash = window.parent.location.hash;
-    if (hash && hash.includes('id_token=')) {
-        const params = new URLSearchParams(hash.substring(1));
-        const token = params.get('id_token');
-        if (token) {
-            const url = new URL(window.parent.location.href);
-            url.hash = '';
-            url.searchParams.set('g_token', token);
-            window.parent.location.href = url.toString();
-        }
-    }
-    </script>
-    """
-    st.components.v1.html(fragment_js, height=0)
-
-    # Check for Google Token in Query Params
+    # Check for Google Code/Token in Query Params
     query_params = st.query_params
+
+    # 1. Handle credential (from GSI Redirect Mode)
+    if "credential" in query_params:
+        token = query_params["credential"]
+        id_info = auth.verify_google_token(token)
+        if id_info:
+            user = auth.get_or_create_google_user(engine, id_info)
+            st.session_state.user = user
+            st.query_params.clear()
+            st.rerun()
+
+    # 2. Handle Auth Code (from Direct Redirect)
+    if "code" in query_params:
+        code = query_params["code"]
+        token = auth.exchange_google_code(code)
+        if token:
+            id_info = auth.verify_google_token(token)
+            if id_info:
+                user = auth.get_or_create_google_user(engine, id_info)
+                st.session_state.user = user
+                st.query_params.clear()
+                st.rerun()
+        st.error("Google authentication failed. Please try again.")
+
+    # 2. Handle GSI Token (from Inline Button)
     if "g_token" in query_params:
         token = query_params["g_token"]
         id_info = auth.verify_google_token(token)
@@ -106,31 +113,23 @@ def login_page():
         CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
         REDIRECT_URI = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
 
-        # Option 1: Inline GSI Button (Might suffer from origin=null in some iframes)
         import streamlit.components.v1 as components
+
+        # Combined GSI with Redirect Mode
+        # data-ux_mode="redirect" makes the GSI button itself perform a full page redirect
+        # to the Authorized Redirect URI, bypassing iframe issues.
         google_login_html = f"""
-        <div class="google-btn-container">
+        <div class="google-btn-container" style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
             <script src="https://accounts.google.com/gsi/client" async defer></script>
-            <script>
-                function handleGoogleSignIn(response) {{
-                    const token = response.credential;
-                    try {{
-                        const url = new URL(window.parent.location.href);
-                        url.searchParams.set('g_token', token);
-                        window.parent.location.href = url.toString();
-                    }} catch (e) {{
-                        window.location.href = "{REDIRECT_URI}?g_token=" + token;
-                    }}
-                }}
-            </script>
+
+            <!-- Standard GSI Button with Redirect Mode -->
             <div id="g_id_onload"
                  data-client_id="{CLIENT_ID}"
                  data-context="signin"
-                 data-ux_mode="popup"
-                 data-callback="handleGoogleSignIn"
+                 data-ux_mode="redirect"
+                 data-login_uri="{REDIRECT_URI}"
                  data-auto_prompt="false"
-                 data-itp_support="true"
-                 data-use_fedcm_for_prompt="true">
+                 data-itp_support="true">
             </div>
             <div class="g_id_signin"
                  data-type="standard"
@@ -140,15 +139,18 @@ def login_page():
                  data-size="large"
                  data-logo_alignment="left">
             </div>
+
+            <div style="margin: 10px 0; font-family: sans-serif; font-size: 12px; color: #666;">--- OR ---</div>
+
+            <!-- Manual Redirect Link as fallback -->
+            <a href="https://accounts.google.com/o/oauth2/v2/auth?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account" target="_parent" style="text-decoration: none; width: 100%;">
+                <div style="text-align: center; padding: 10px; background-color: #ffffff; color: #31333F; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem; cursor: pointer; font-family: sans-serif; font-size: 14px;">
+                    🌐 Direct Browser Login
+                </div>
+            </a>
         </div>
         """
-        components.html(google_login_html, height=80)
-
-        st.write("--- OR ---")
-
-        # Option 2: Direct Redirect (Safest against origin=null)
-        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=id_token&scope=openid%20email%20profile&nonce=random_nonce"
-        st.link_button("🌐 Sign in with Google (Direct Redirect)", auth_url, use_container_width=True, help="Use this if the button above shows an 'invalid_request' error.")
+        components.html(google_login_html, height=180)
 
         st.divider()
         st.caption("🔒 **Troubleshooting for Entwicklers**:")
