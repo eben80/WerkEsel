@@ -34,6 +34,27 @@ import streamlit_google_auth
 # We subclass the library's Authenticate class to fix the 'Missing code verifier' error
 # while keeping the library's UI and structure.
 class PatchedAuthenticate(streamlit_google_auth.Authenticate):
+    def get_authorization_url(self) -> str:
+        """Generates a PKCE-free authorization URL."""
+        with open(self.secret_credentials_path, 'r') as f:
+            config = json.load(f).get('web')
+        client_id = config['client_id']
+        return f"https://accounts.google.com/o/oauth2/v2/auth?client_id={client_id}&redirect_uri={self.redirect_uri}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account"
+
+    def login(self, color='blue', justify_content="center"):
+        """Renders a login button that targets the parent window."""
+        if not st.session_state.get('connected'):
+            authorization_url = self.get_authorization_url()
+            html_content = f"""
+            <div style="display: flex; justify-content: {justify_content};">
+                <a href="{authorization_url}" target="_top" style="background-color: {'#fff' if color == 'white' else '#4285f4'}; color: {'#000' if color == 'white' else '#fff'}; text-decoration: none; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; padding: 8px 12px; border-radius: 4px; display: flex; align-items: center; border: 1px solid #ddd;">
+                    <img src="https://lh3.googleusercontent.com/COxitqgJr1sJnIDe8-jiKhxDx1FrYbtRHKJ9z_hELisAlapwE9LUPh6fcXIfb5vwpbMl4xl9H9TRFPc5NOO8Sb3VSgIBrfRYvW6cUA" alt="Google logo" style="margin-right: 8px; width: 26px; height: 26px; background-color: white; border: 2px solid white; border-radius: 4px;">
+                    Sign in with Google
+                </a>
+            </div>
+            """
+            st.components.v1.html(html_content, height=70)
+
     def check_authentification(self):
         """Fixes the InvalidGrantError: Missing code verifier by using manual exchange."""
         if not st.session_state.get('connected'):
@@ -57,7 +78,7 @@ class PatchedAuthenticate(streamlit_google_auth.Authenticate):
                     # Normalize to what the library expects
                     id_info['id'] = id_info.get('sub')
                     st.session_state["user_info"] = id_info
-                    self.cookie_handler.set_cookie(id_info.get("name"), id_info.get("email"), id_info.get("picture"), id_info.get("id"))
+                    self.cookie_handler.set_cookie(id_info.get("name"), id_info.get("email"), id_info.get("picture", ""), id_info.get("id"))
                     st.rerun()
                 else:
                     st.error(f"Google authentication failed: {error}")
