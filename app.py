@@ -366,7 +366,7 @@ def show_jobs():
     status_map = {"High Matches": "new", "Approved": "approved", "Tailored": "tailored", "Applied": "applied", "Interviewing": "interview", "Rejected": "rejected", "Archived": "archived"}
 
     query = text("""
-        SELECT id, title, company, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
+        SELECT id, title, company, site, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
         FROM job_leads
         WHERE profile_id = :pid
         ORDER BY FIELD(status, 'tailored', 'applied', 'new', 'approved', 'rejected', 'archived'), match_score DESC
@@ -426,6 +426,12 @@ def show_jobs():
                 st.checkbox("Select job", key=f"sel_{db_id}", label_visibility="collapsed")
             with c1:
                 st.subheader(f"{row['title']} @ {row['company']}")
+
+                # Sourced & Applied Times
+                sourced_time = row['created_at'].strftime("%Y-%m-%d %H:%M")
+                applied_time = row['applied_at'].strftime("%Y-%m-%d %H:%M") if row['applied_at'] else "N/A"
+
+                st.caption(f"**Source:** {row['site'].capitalize()} | **Sourced:** {sourced_time} | **Applied:** {applied_time}")
                 st.caption(f"Score: {row['match_score']}% | Status: {row['status'].upper()}")
                 st.write(f"**AI Insight:** {row['ai_summary']}")
                 st.link_button("View Posting", row['job_url'])
