@@ -94,15 +94,19 @@ def run_tailor(profile_id=None, job_id=None):
             FROM job_leads jl
             JOIN search_profiles sp ON jl.profile_id = sp.id
             JOIN users u ON sp.user_id = u.id
-            WHERE jl.status = 'approved'
+            WHERE 1=1
         """
         params = {}
-        if profile_id:
-            sql += " AND jl.profile_id = :pid"
-            params["pid"] = profile_id
+        # If specific job_id, we ignore status. Otherwise, only 'approved'.
         if job_id:
             sql += " AND jl.id = :jid"
             params["jid"] = job_id
+        else:
+            sql += " AND jl.status = 'approved'"
+
+        if profile_id:
+            sql += " AND jl.profile_id = :pid"
+            params["pid"] = profile_id
 
         if not job_id:
             sql += " LIMIT 5"

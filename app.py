@@ -474,14 +474,25 @@ def show_jobs():
                             if st.button("Refresh", key=f"rf_{row['id']}"): st.rerun()
 
                 elif row['status'] == 'tailored':
-                    if st.button("🚀 Apply", key=f"ma_{row['id']}", use_container_width=True):
+                    if st.button("🚀 Apply", key=f"ap_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
 
+                    if st.button("♻️ Re-Tailor", key=f"ret_t_{row['id']}", use_container_width=True):
+                        with st.status("Re-Tailoring...", expanded=True) as status:
+                            import io
+                            from contextlib import redirect_stdout
+                            f = io.StringIO()
+                            with redirect_stdout(f):
+                                tailor.run_tailor(job_id=row['id'])
+                            st.code(f.getvalue())
+                            status.update(label="Re-tailoring complete!", state="complete")
+                            if st.button("Refresh", key=f"rf_ret_t_{row['id']}"): st.rerun()
+
                 elif row['status'] == 'applied':
-                    if st.button("✅ Applied", key=f"ma_{row['id']}", use_container_width=True, help="Click to unmark as applied"):
+                    if st.button("✅ Applied", key=f"apd_{row['id']}", use_container_width=True, help="Click to unmark as applied"):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='tailored', applied_at=NULL WHERE id=:id"), {"id": row['id']})
                             conn.commit()
@@ -492,11 +503,23 @@ def show_jobs():
                             conn.execute(text("UPDATE job_leads SET status='interview' WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
+
                     if st.button("👎 Negative", key=f"neg_{row['id']}", use_container_width=True):
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": row['id']})
                             conn.commit()
                         st.rerun()
+
+                    if st.button("♻️ Re-Tailor", key=f"ret_a_{row['id']}", use_container_width=True):
+                        with st.status("Re-Tailoring...", expanded=True) as status:
+                            import io
+                            from contextlib import redirect_stdout
+                            f = io.StringIO()
+                            with redirect_stdout(f):
+                                tailor.run_tailor(job_id=row['id'])
+                            st.code(f.getvalue())
+                            status.update(label="Re-tailoring complete!", state="complete")
+                            if st.button("Refresh", key=f"rf_ret_a_{row['id']}"): st.rerun()
 
                 # Global Archive for any job
                 if row['status'] not in ['archived', 'rejected']:
