@@ -142,15 +142,20 @@ def login_page():
 
             <div style="margin: 10px 0; font-family: sans-serif; font-size: 12px; color: #666;">--- OR ---</div>
 
-            <!-- Manual Redirect Link as fallback -->
-            <a href="https://accounts.google.com/o/oauth2/v2/auth?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account" target="_parent" style="text-decoration: none; width: 100%;">
-                <div style="text-align: center; padding: 10px; background-color: #ffffff; color: #31333F; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem; cursor: pointer; font-family: sans-serif; font-size: 14px;">
-                    🌐 Direct Browser Login
-                </div>
-            </a>
+            <div style="margin: 10px 0; font-family: sans-serif; font-size: 12px; color: #666;">Note: If the button above shows 'origin=null', use the direct link below.</div>
         </div>
         """
-        components.html(google_login_html, height=180)
+        components.html(google_login_html, height=130)
+
+        # Direct Redirect Button using markdown to target _top window
+        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account"
+        st.markdown(f"""
+            <a href="{auth_url}" target="_top" style="text-decoration: none;">
+                <div style="width: 100%; text-align: center; padding: 10px; background-color: #ffffff; color: #31333F; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem; cursor: pointer; font-family: sans-serif; font-size: 14px;">
+                    🌐 Direct Browser Login (Same Window)
+                </div>
+            </a>
+            """, unsafe_allow_html=True)
 
         st.divider()
         st.caption("🔒 **Troubleshooting for Entwicklers**:")
@@ -512,13 +517,33 @@ def show_jobs():
                             s.update(label="Tailoring complete!", state="complete")
                             if st.button("Refresh", key=f"rf_{db_id}"): st.rerun()
 
-                elif status == 'tailored':
-                    if st.button("🚀 Apply", key=f"apply_{db_id}", use_container_width=True):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": db_id})
-                            conn.commit()
-                        st.rerun()
+                elif status == 'tailored' or status == 'applied':
+                    if status == 'tailored':
+                        if st.button("🚀 Apply", key=f"apply_{db_id}", use_container_width=True):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": db_id})
+                                conn.commit()
+                            st.rerun()
+                    else: # status == 'applied'
+                        if st.button("✅ Applied", key=f"unapply_{db_id}", use_container_width=True, help="Click to unmark as applied"):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status='tailored', applied_at=NULL WHERE id=:id"), {"id": db_id})
+                                conn.commit()
+                            st.rerun()
 
+                        if st.button("🤝 Interview", key=f"int_{db_id}", use_container_width=True):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status='interview' WHERE id=:id"), {"id": db_id})
+                                conn.commit()
+                            st.rerun()
+
+                        if st.button("👎 Negative", key=f"neg_{db_id}", use_container_width=True):
+                            with engine.connect() as conn:
+                                conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": db_id})
+                                conn.commit()
+                            st.rerun()
+
+                    # Common Re-Tailor button for both tailored and applied
                     if st.button("♻️ Re-Tailor", key=f"ret_{db_id}", use_container_width=True):
                         with st.status("Re-Tailoring...", expanded=True) as s:
                             import io
@@ -530,35 +555,6 @@ def show_jobs():
                             s.update(label="Re-tailoring complete!", state="complete")
                             if st.button("Refresh", key=f"rf_ret_{db_id}"): st.rerun()
 
-                elif status == 'applied':
-                    if st.button("✅ Applied", key=f"unapply_{db_id}", use_container_width=True, help="Click to unmark as applied"):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status='tailored', applied_at=NULL WHERE id=:id"), {"id": db_id})
-                            conn.commit()
-                        st.rerun()
-
-                    if st.button("🤝 Interview", key=f"int_{db_id}", use_container_width=True):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status='interview' WHERE id=:id"), {"id": db_id})
-                            conn.commit()
-                        st.rerun()
-
-                    if st.button("👎 Negative", key=f"neg_{db_id}", use_container_width=True):
-                        with engine.connect() as conn:
-                            conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": db_id})
-                            conn.commit()
-                        st.rerun()
-
-                    if st.button("♻️ Re-Tailor", key=f"ret_{db_id}", use_container_width=True):
-                        with st.status("Re-Tailoring...", expanded=True) as s:
-                            import io
-                            from contextlib import redirect_stdout
-                            f = io.StringIO()
-                            with redirect_stdout(f):
-                                tailor.run_tailor(job_id=db_id)
-                            st.code(f.getvalue())
-                            s.update(label="Re-tailoring complete!", state="complete")
-                            if st.button("Refresh", key=f"rf_ret_{db_id}"): st.rerun()
 
                 # Global Archive for any job
                 if status not in ['archived', 'rejected']:
