@@ -184,13 +184,14 @@ def show_profiles():
             q_term = st.text_input("Search Term", value=main_q.get('search_term', 'Product Manager'), key=f"term_{p_id}")
             q_loc = st.text_input("Location", value=main_q.get('location', 'Toronto, ON'), key=f"loc_{p_id}")
             q_remote = st.checkbox("Remote Only", value=main_q.get('is_remote', False), key=f"rem_{p_id}")
+            q_li_desc = st.checkbox("Fetch LinkedIn Descriptions", value=main_q.get('linkedin_fetch_description', True), key=f"li_desc_{p_id}")
 
             col1, col2, col3 = st.columns(3)
             q_wanted = col1.number_input("Results Wanted", value=main_q.get('results_wanted', 20), step=1, key=f"want_{p_id}")
             q_hours = col2.number_input("Hours Old", value=main_q.get('hours_old', 24), step=1, key=f"hours_{p_id}")
             q_country = col3.text_input("Country (Indeed)", value=main_q.get('country_indeed', 'canada'), key=f"country_{p_id}")
 
-            q_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor"], default=main_q.get('sites', ["linkedin", "indeed", "glassdoor"]), key=f"sites_{p_id}")
+            q_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor", "zip_recruiter"], default=main_q.get('sites', ["linkedin", "indeed", "glassdoor"]), key=f"sites_{p_id}")
 
             is_active = st.checkbox("Active", value=p_active, key=f"active_{p_id}")
 
@@ -202,7 +203,8 @@ def show_profiles():
                     "results_wanted": q_wanted,
                     "hours_old": q_hours,
                     "country_indeed": q_country,
-                    "sites": q_sites
+                    "sites": q_sites,
+                    "linkedin_fetch_description": q_li_desc
                 }]
                 with engine.connect() as conn:
                     conn.execute(text("UPDATE search_profiles SET name=:n, profile_text=:t, search_params=:p, is_active=:a WHERE id=:id"),
@@ -221,7 +223,8 @@ def show_profiles():
         n_term = c1.text_input("Search Term", value="Product Manager", key="new_p_term")
         n_loc = c2.text_input("Location", value="Toronto, ON", key="new_p_loc")
         n_remote = st.checkbox("Remote Only", value=False, key="new_p_remote")
-        n_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor"], default=["linkedin", "indeed", "glassdoor"], key="new_p_sites")
+        n_li_desc = st.checkbox("Fetch LinkedIn Descriptions", value=True, key="new_p_li_desc")
+        n_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor", "zip_recruiter"], default=["linkedin", "indeed", "glassdoor"], key="new_p_sites")
 
         if st.button("Create Profile"):
             n_params = [{
@@ -231,7 +234,8 @@ def show_profiles():
                 "results_wanted": 20,
                 "hours_old": 24,
                 "country_indeed": "canada",
-                "sites": n_sites
+                "sites": n_sites,
+                "linkedin_fetch_description": n_li_desc
             }]
             with engine.connect() as conn:
                 conn.execute(text("INSERT INTO search_profiles (user_id, name, profile_text, search_params) VALUES (:u, :n, :t, :p)"),

@@ -5,6 +5,7 @@ from jobspy import scrape_jobs
 import logging
 import random
 import json
+import time
 from db_utils import engine, setup_db
 
 # --- CONFIG ---
@@ -23,17 +24,19 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
 
     all_found_jobs = []
 
-    for query in search_params:
+    for i, query in enumerate(search_params):
         search_term = query.get('search_term', 'Product Manager')
         location = query.get('location', 'Toronto, ON')
         is_remote = query.get('is_remote', False)
         country_indeed = query.get('country_indeed', 'canada')
         sites = query.get('sites', ["linkedin", "indeed", "glassdoor"])
+        fetch_li_desc = query.get('linkedin_fetch_description', True)
 
         loc_label = location if not is_remote else f"Remote ({country_indeed})"
         print(f"🔍 Searching for '{search_term}' in {loc_label}...")
         print(f"   - Sites: {', '.join(sites)}")
         print(f"   - Limit: {query.get('results_wanted', 20)} jobs, {query.get('hours_old', 24)} hours old")
+        print(f"   - Fetch LinkedIn Descriptions: {fetch_li_desc}")
         
         try:
             jobs = scrape_jobs(
@@ -44,13 +47,20 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
                 results_wanted=query.get('results_wanted', 20),
                 hours_old=query.get('hours_old', 24),
                 enforce_desktop=True,
-                country_indeed=country_indeed
+                country_indeed=country_indeed,
+                linkedin_fetch_description=fetch_li_desc
             )
             
             if not jobs.empty:
                 jobs['is_remote'] = is_remote
                 jobs['profile_id'] = profile_id
                 all_found_jobs.append(jobs)
+
+            # Add human-like pause between queries
+            if i < len(search_params) - 1:
+                wait = random.randint(3, 7)
+                print(f"   - Pausing for {wait}s...")
+                time.sleep(wait)
                 
         except Exception as e:
             print(f"⚠️ Error during {loc_label} search: {e}")
@@ -60,6 +70,14 @@ def run_scout_for_profile(profile_id, profile_name, search_params):
         return
 
     df = pd.concat(all_found_jobs).drop_duplicates(subset=['id'])
+
+    # Filter out jobs without descriptions (crucial for matching)
+    total_before = len(df)
+    df = df[df['description'].notna() & (df['description'].str.strip() != "")]
+    total_after = len(df)
+    if total_before > total_after:
+        print(f"   🗑️ Filtered out {total_before - total_after} jobs with missing descriptions.")
+
     df = df[['id', 'site', 'title', 'company', 'location', 'job_url', 'description', 'date_posted', 'is_remote', 'profile_id']]
     df = df.rename(columns={'id': 'job_id'})
 
