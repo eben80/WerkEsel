@@ -4,8 +4,6 @@ import boto3
 from botocore.exceptions import ClientError
 from sqlalchemy import text
 import streamlit as st
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
 
 # AWS SES Configuration (expected in .env)
 SES_REGION = os.getenv("AWS_SES_REGION", "us-east-1")
@@ -42,44 +40,6 @@ def send_verification_email(email, name, code):
         return False
     return True
 
-def exchange_google_code(code):
-    """Exchanges an authorization code for an ID token."""
-    import requests
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    redirect_uri = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
-
-    if not client_secret:
-        error_msg = "GOOGLE_CLIENT_SECRET not set in .env"
-        print(f"❌ {error_msg}")
-        return {"error": error_msg}
-
-    token_url = "https://oauth2.googleapis.com/token"
-    data = {
-        "code": code,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri,
-        "grant_type": "authorization_code",
-    }
-
-    response = requests.post(token_url, data=data)
-    if response.status_code == 200:
-        return {"id_token": response.json().get("id_token")}
-    else:
-        error_msg = f"Code exchange error: {response.status_code} - {response.text}"
-        print(f"❌ {error_msg}")
-        return {"error": error_msg}
-
-def verify_google_token(token):
-    try:
-        # Use the specific Client ID provided by the user in the snippet
-        client_id = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
-        return idinfo
-    except ValueError as e:
-        print(f"Token verification error: {e}")
-        return None
 
 def login_user(engine, email, password):
     with engine.connect() as conn:

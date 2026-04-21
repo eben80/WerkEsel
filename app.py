@@ -7,6 +7,8 @@ import matcher
 import tailor
 from sqlalchemy import text, bindparam
 from dotenv import load_dotenv
+from streamlit_google_auth import Authenticate
+
 # --- CONFIG ---
 load_dotenv()
 
@@ -28,53 +30,41 @@ if "user" not in st.session_state:
 if "profile_id" not in st.session_state:
     st.session_state.profile_id = None
 
+def get_authenticator():
+    creds_path = os.getenv("GOOGLE_CREDS_PATH", "client_secret.json")
+    if not os.path.exists(creds_path):
+        return None
+    return Authenticate(
+        secret_credentials_path=creds_path,
+        cookie_name="werkesel_google_auth",
+        cookie_key=os.getenv("SECRET_KEY", "werkesel_cookie_key"),
+        redirect_uri=os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
+    )
+
 # --- AUTH UI ---
 def login_page():
     st.title("🫏 WerkEsel: Login")
 
-    # Check for Google Code/Token in Query Params
-    query_params = st.query_params
+    # Initialize Streamlit Google Auth
+    authenticator = get_authenticator()
+    if not authenticator:
+        st.error("Critical Error: Google Credentials file (client_secret.json) not found.")
+        return
 
-    # 1. Handle credential (from GSI Redirect Mode)
-    if "credential" in query_params:
-        token = query_params["credential"]
-        id_info = auth.verify_google_token(token)
-        if id_info:
-            user = auth.get_or_create_google_user(engine, id_info)
-            st.session_state.user = user
-            st.query_params.clear()
-            st.rerun()
+    # Check if user is already authenticated via library
+    authenticator.check_authentification()
 
-    # 2. Handle Auth Code (from Direct Redirect)
-    if "code" in query_params:
-        code = query_params["code"]
-        exchange_result = auth.exchange_google_code(code)
-
-        if "id_token" in exchange_result:
-            token = exchange_result["id_token"]
-            id_info = auth.verify_google_token(token)
-            if id_info:
-                user = auth.get_or_create_google_user(engine, id_info)
-                st.session_state.user = user
-                st.query_params.clear()
-                st.rerun()
-            else:
-                st.error("Google token verification failed.")
-        else:
-            st.error(f"Google authentication failed: {exchange_result.get('error', 'Unknown error')}")
-            st.info("Check if GOOGLE_CLIENT_SECRET is correct and the Redirect URI matches Google Cloud Console.")
-
-    # 2. Handle GSI Token (from Inline Button)
-    if "g_token" in query_params:
-        token = query_params["g_token"]
-        id_info = auth.verify_google_token(token)
-        if id_info:
-            user = auth.get_or_create_google_user(engine, id_info)
-            st.session_state.user = user
-            st.query_params.clear() # Clean URL
-            st.rerun()
-        else:
-            st.error("Invalid Google session. Please try again.")
+    if st.session_state.get('connected'):
+        g_info = st.session_state['user_info']
+        # Normalize fields for our auth logic
+        id_info = {
+            'email': g_info.get('email'),
+            'sub': g_info.get('sub') or g_info.get('oauth_id'),
+            'name': g_info.get('name')
+        }
+        user = auth.get_or_create_google_user(engine, id_info)
+        st.session_state.user = user
+        st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["Login", "Sign Up", "Verify Email", "Google Login"])
 
@@ -114,60 +104,7 @@ def login_page():
 
     with tab4:
         st.write("Sign in with your Google account to continue.")
-
-        # User provided Client ID
-        CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "1032401011225-pcjeocvpdigthv15u1qu1hmv8p61cuc0.apps.googleusercontent.com")
-        REDIRECT_URI = os.getenv("REDIRECT_URI", "https://tefinitely.com/werkesel/")
-
-        import streamlit.components.v1 as components
-
-        # Combined GSI with Redirect Mode
-        # data-ux_mode="redirect" makes the GSI button itself perform a full page redirect
-        # to the Authorized Redirect URI, bypassing iframe issues.
-        google_login_html = f"""
-        <div class="google-btn-container" style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
-            <script src="https://accounts.google.com/gsi/client" async defer></script>
-
-            <!-- Standard GSI Button with Redirect Mode -->
-            <div id="g_id_onload"
-                 data-client_id="{CLIENT_ID}"
-                 data-context="signin"
-                 data-ux_mode="redirect"
-                 data-login_uri="{REDIRECT_URI}"
-                 data-auto_prompt="false"
-                 data-itp_support="true">
-            </div>
-            <div class="g_id_signin"
-                 data-type="standard"
-                 data-shape="rectangular"
-                 data-theme="outline"
-                 data-text="signin_with"
-                 data-size="large"
-                 data-logo_alignment="left">
-            </div>
-
-            <div style="margin: 10px 0; font-family: sans-serif; font-size: 12px; color: #666;">--- OR ---</div>
-
-            <div style="margin: 10px 0; font-family: sans-serif; font-size: 12px; color: #666;">Note: If the button above shows 'origin=null', use the direct link below.</div>
-        </div>
-        """
-        components.html(google_login_html, height=130)
-
-        # Direct Redirect Button using markdown to target _top window
-        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account"
-        st.markdown(f"""
-            <a href="{auth_url}" target="_top" style="text-decoration: none;">
-                <div style="width: 100%; text-align: center; padding: 10px; background-color: #ffffff; color: #31333F; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem; cursor: pointer; font-family: sans-serif; font-size: 14px;">
-                    🌐 Direct Browser Login (Same Window)
-                </div>
-            </a>
-            """, unsafe_allow_html=True)
-
-        st.divider()
-        st.caption("🔒 **Troubleshooting for Entwicklers**:")
-        st.caption("If you see 'origin=null', it is because Streamlit runs in an iframe. Use the **Direct Redirect** button above. Ensure the following are set in your Google Cloud Console:")
-        st.caption("- **Authorized JavaScript Origins**: `https://tefinitely.com` (and `http://localhost:8501`) ")
-        st.caption("- **Authorized Redirect URIs**: `https://tefinitely.com/werkesel/` ")
+        authenticator.login()
 
 # --- MAIN APP ---
 def main():
@@ -178,10 +115,11 @@ def main():
     user = st.session_state.user
     st.sidebar.title(f"🫏 {user['name']}")
     if st.sidebar.button("Logout"):
+        # Google Auth Logout
+        authenticator = get_authenticator()
+        if authenticator:
+            authenticator.logout()
         st.session_state.user = None
-        # Clear connected state for GSI if we were tracking it
-        if 'connected' in st.session_state:
-            del st.session_state['connected']
         st.rerun()
 
     menu = ["Dashboard", "Profiles", "Jobs", "User Settings"]
