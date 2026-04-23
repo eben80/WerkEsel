@@ -93,6 +93,11 @@ BEGIN
     IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = 'job_leads' AND INDEX_NAME = 'unique_job_per_profile') THEN
         ALTER TABLE job_leads ADD UNIQUE KEY unique_job_per_profile (job_id, profile_id);
     END IF;
+
+    -- Add is_manual column
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'job_leads' AND COLUMN_NAME = 'is_manual') THEN
+        ALTER TABLE job_leads ADD COLUMN is_manual BOOLEAN DEFAULT FALSE;
+    END IF;
 END //
 DELIMITER ;
 CALL MigrateJobLeads();

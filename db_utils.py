@@ -89,10 +89,20 @@ def setup_db():
                 matched_at TIMESTAMP DEFAULT NULL,
                 tailored_at TIMESTAMP DEFAULT NULL,
                 applied_at TIMESTAMP DEFAULT NULL,
+                is_manual BOOLEAN DEFAULT FALSE,
                 CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES search_profiles(id) ON DELETE CASCADE,
                 UNIQUE KEY unique_job_per_profile (job_id, profile_id)
             )
         """))
+
+        try:
+            conn.execute(text("SELECT is_manual FROM job_leads LIMIT 1"))
+        except Exception:
+            try:
+                conn.execute(text("ALTER TABLE job_leads ADD COLUMN is_manual BOOLEAN DEFAULT FALSE"))
+                print("Added is_manual column to job_leads.")
+            except Exception as e:
+                print(f"Error adding is_manual: {e}")
 
         # Migration for existing job_leads
         try:

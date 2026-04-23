@@ -390,6 +390,55 @@ def show_jobs():
             status.update(label=f"Tailor complete! Generated {tailored} applications.", state="complete")
             if st.button("Refresh Page"): st.rerun()
 
+    st.subheader("📥 Manual Job Import")
+    with st.expander("Add job from URL"):
+        manual_url = st.text_input("Job URL")
+        if st.button("Import Job"):
+            if manual_url:
+                with st.status("Importing job details...") as status:
+                    try:
+                        from jobspy import scrape_jobs
+                        # Scrape specific URL
+                        # jobspy scrape_jobs doesn't always support direct URL well,
+                        # but we can try to find it by site and job_id if we can parse it,
+                        # or just rely on its general scraping if we provide the URL in some way.
+                        # Actually, jobspy doesn't strictly support "scrape this URL" for all sites.
+                        # Let's try a generic approach or just record the URL and title for now if it fails.
+
+                        # Simplified manual import: Use jobspy to find THIS specific job if possible
+                        # Or just use a simple scraper.
+                        import requests
+                        from bs4 import BeautifulSoup
+
+                        res = requests.get(manual_url, headers={"User-Agent": "Mozilla/5.0"})
+                        if res.status_code == 200:
+                            soup = BeautifulSoup(res.text, 'html.parser')
+                            title = soup.title.string if soup.title else "Manual Import"
+                            # Try to get more details or just mark as manual
+
+                            # For consistency, let's use a placeholder job_id
+                            import hashlib
+                            m_job_id = hashlib.md5(manual_url.encode()).hexdigest()
+
+                            desc = soup.get_text(separator=' ', strip=True)[:5000]
+                            with engine.connect() as conn:
+                                conn.execute(text("""
+                                    INSERT INTO job_leads (profile_id, job_id, site, title, company, job_url, description, is_manual, status)
+                                    VALUES (:pid, :jid, 'manual', :title, 'Unknown', :url, :desc, TRUE, 'new')
+                                    ON DUPLICATE KEY UPDATE status='new'
+                                """), {
+                                    "pid": profile_id, "jid": m_job_id, "title": title, "url": manual_url, "desc": desc,
+                                })
+                                conn.commit()
+                            status.update(label="Job imported! Run Matcher to analyze.", state="complete")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to fetch URL: {res.status_code}")
+                    except Exception as e:
+                        st.error(f"Error importing job: {e}")
+            else:
+                st.warning("Please enter a URL.")
+
     st.divider()
 
     # Get user threshold
@@ -398,12 +447,22 @@ def show_jobs():
         threshold = u_info[0] if u_info else 70
 
     # Filtering
-    filter_status = st.pills("Filter Status:", ["All", "High Matches", "Approved", "Tailored", "Applied", "Interviewing", "Rejected", "Archived"], default="All")
+    filter_status = st.pills("Filter Status:", ["All", "High Matches", "Low Matches", "Manual", "Approved", "Tailored", "Applied", "Interviewing", "Rejected", "Archived"], default="All")
 
-    status_map = {"High Matches": "new", "Approved": "approved", "Tailored": "tailored", "Applied": "applied", "Interviewing": "interview", "Rejected": "rejected", "Archived": "archived"}
+    status_map = {
+        "High Matches": "new",
+        "Low Matches": "new",
+        "Manual": None,
+        "Approved": "approved",
+        "Tailored": "tailored",
+        "Applied": "applied",
+        "Interviewing": "interview",
+        "Rejected": "rejected",
+        "Archived": "archived"
+    }
 
     query = text("""
-        SELECT id, title, company, site, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at
+        SELECT id, title, company, site, match_score, ai_summary, job_url, status, created_at, matched_at, tailored_at, applied_at, is_manual
         FROM job_leads
         WHERE profile_id = :pid
         ORDER BY FIELD(status, 'tailored', 'applied', 'new', 'approved', 'rejected', 'archived'), match_score DESC
@@ -418,6 +477,10 @@ def show_jobs():
 
     if filter_status == "High Matches":
         df = df[(df['status'] == 'new') & (df['match_score'] >= threshold)]
+    elif filter_status == "Low Matches":
+        df = df[(df['status'] == 'new') & (df['match_score'] < threshold)]
+    elif filter_status == "Manual":
+        df = df[df['is_manual'] == True]
     elif filter_status != "All":
         df = df[df['status'] == status_map[filter_status]]
 
@@ -468,7 +531,8 @@ def show_jobs():
                 sourced_time = row['created_at'].strftime("%Y-%m-%d %H:%M")
                 applied_time = row['applied_at'].strftime("%Y-%m-%d %H:%M") if row['applied_at'] else "N/A"
 
-                st.caption(f"**Source:** {row['site'].capitalize()} | **Sourced:** {sourced_time} | **Applied:** {applied_time}")
+                manual_tag = " | **MANUAL**" if row['is_manual'] else ""
+                st.caption(f"**Source:** {row['site'].capitalize()}{manual_tag} | **Sourced:** {sourced_time} | **Applied:** {applied_time}")
                 st.caption(f"Score: {row['match_score']}% | Status: {row['status'].upper()}")
                 st.write(f"**AI Insight:** {row['ai_summary']}")
                 st.link_button("View Posting", row['job_url'])
