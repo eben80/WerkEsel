@@ -7,3 +7,9 @@ openai
 python-jobspy
 fpdf2
 requests
+bcrypt
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+boto3
+streamlit-google-auth

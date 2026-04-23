@@ -1,26 +1,27 @@
 import os
 import json
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from openai import OpenAI
 from fpdf import FPDF
+from db_utils import engine
 
 # --- CONFIG ---
 # Load the variables from the .env file
 load_dotenv()
-# Build the URL dynamically
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
+API_KEY = os.environ.get("OPENAI_API_KEY")
 
-DB_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY")) 
-engine = create_engine(DB_URL)
+def is_key_valid(key):
+    return key and not key.startswith("your_") and not key.endswith("here")
+
+if not is_key_valid(API_KEY):
+    print("❌ ERROR: OpenAI API key is missing or is a placeholder. Update your .env file.")
+
+client = OpenAI(api_key=API_KEY)
 
 os.makedirs("resumes", exist_ok=True)
 
-def generate_pdf(filename, title, content):
+def generate_pdf(filename, title, content, user_info):
     pdf = FPDF(format='letter')
     pdf.add_page()
     
@@ -32,14 +33,29 @@ def generate_pdf(filename, title, content):
     else:
         body_font = "helvetica"
 
-    # 1. HEADER (Eben's Info)
-    pdf.set_font(body_font, "B", 18)
-    pdf.cell(0, 10, "EBEN VAN ELLEWEE", align='L', new_x="LMARGIN", new_y="NEXT")
+    # 1. HEADER (Dynamic based on user settings)
+    template = user_info.get('header_template') or "{name}\n{email}"
+    placeholders = {
+        "{name}": user_info.get('name', ''),
+        "{email}": user_info.get('email', ''),
+        "{phone}": user_info.get('phone', ''),
+        "{location}": user_info.get('location', ''),
+        "{linkedin}": user_info.get('linkedin_url', ''),
+        "{website}": user_info.get('website_url', '')
+    }
     
-    pdf.set_font(body_font, size=9)
-    #contact_info = "647-749-5428 | ebenvanellewee@gmail.com | Toronto, ON | linkedin.com/in/ebenvanellewee"
-    contact_info = "ebenvanellewee@gmail.com | linkedin.com/in/ebenvanellewee"
-    pdf.cell(0, 5, contact_info, align='L', new_x="LMARGIN", new_y="NEXT")
+    header_text = template
+    for key, val in placeholders.items():
+        header_text = header_text.replace(key, str(val or ""))
+
+    lines = header_text.split('\n')
+    for i, line in enumerate(lines):
+        if i == 0:
+            pdf.set_font(body_font, "B", 18)
+            pdf.cell(0, 10, line.upper(), align='L', new_x="LMARGIN", new_y="NEXT")
+        else:
+            pdf.set_font(body_font, size=9)
+            pdf.cell(0, 5, line, align='L', new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_draw_color(100, 100, 100) 
     pdf.line(10, pdf.get_y() + 2, 205, pdf.get_y() + 2)
@@ -56,11 +72,16 @@ def generate_pdf(filename, title, content):
     clean_text = str(content)
     replacements = {
         "**": "", "__": "", "#": "", "---": "", # Strip Markdown
-        "&amp;": "&", "": "-", "–": "-", "—": "-"
+        "&amp;": "&", "": "-", "–": "-", "—": "-",
+        "\u2022": "-", "\u2013": "-", "\u2014": "-", "\u2019": "'", "\u201c": '"', "\u201d": '"'
     }
     for old, new in replacements.items():
         clean_text = clean_text.replace(old, new)
     
+    # Force encode to latin-1 while replacing unencodable chars with '?'
+    # This prevents FPDF crashes while keeping the text readable
+    clean_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
+
     # Remove any leading/trailing whitespace the AI might have added
     clean_text = clean_text.strip()
 
@@ -69,23 +90,48 @@ def generate_pdf(filename, title, content):
     pdf.multi_cell(0, 6, text=clean_text) 
     
     pdf.output(filename)
-def run_tailor():
-    if not os.path.exists("profile.txt"):
-        print("❌ Error: profile.txt not found.")
-        return
-        
-    with open("profile.txt", "r") as f:
-        my_profile = f.read()
-
+def run_tailor(profile_id=None, job_id=None):
+    """Runs the tailor for approved jobs. Optionally filtered by profile_id or job_id."""
     with engine.connect() as conn:
-        query = text("SELECT id, job_id, title, company, description FROM job_leads WHERE status = 'approved' LIMIT 5")
-        jobs = conn.execute(query).fetchall()
+        sql = """
+            SELECT jl.id, jl.job_id, jl.title, jl.company, jl.description, sp.profile_text,
+                   u.name, u.email, u.phone, u.location, u.linkedin_url, u.website_url, u.header_template
+            FROM job_leads jl
+            JOIN search_profiles sp ON jl.profile_id = sp.id
+            JOIN users u ON sp.user_id = u.id
+            WHERE 1=1
+        """
+        params = {}
+        # If specific job_id, we ignore status. Otherwise, only 'approved'.
+        if job_id:
+            sql += " AND jl.id = :jid"
+            params["jid"] = job_id
+        else:
+            sql += " AND jl.status = 'approved'"
+
+        if profile_id:
+            sql += " AND jl.profile_id = :pid"
+            params["pid"] = profile_id
+
+        if not job_id:
+            sql += " LIMIT 5"
+
+        jobs = conn.execute(text(sql), params).fetchall()
 
         if not jobs:
             print("📭 No approved jobs to tailor.")
-            return
+            return 0
 
-        for db_id, job_id, title, company, description in jobs:
+        tailored_count = 0
+        for i, job in enumerate(jobs, 1):
+            db_id, job_id, title, company, description, my_profile, u_name, u_email, u_phone, u_loc, u_li, u_web, u_header = job
+            print(f"   [{i}/{len(jobs)}] Tailoring for: {title} @ {company} (ID: {db_id})")
+
+            user_info = {
+                "name": u_name, "email": u_email, "phone": u_phone,
+                "location": u_loc, "linkedin_url": u_li, "website_url": u_web,
+                "header_template": u_header
+            }
             print(f"🧵 Tailoring application for {title} at {company}...")
 
             combined_prompt = f"""
@@ -127,16 +173,21 @@ def run_tailor():
                 full_cl = result.get("cover_letter", "")
                 
                 # Use db_id for file naming to be consistent with app.py's expected patterns
-                # Pass empty title for Resume as requested
-                generate_pdf(f"resumes/{db_id}_Resume.pdf", "", full_resume)
-                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", f"Cover Letter: {company}", full_cl)
+                # Pass empty title for both Resume and Cover Letter as requested
+                generate_pdf(f"resumes/{db_id}_Resume.pdf", "", full_resume, user_info)
+                generate_pdf(f"resumes/{db_id}_CoverLetter.pdf", "", full_cl, user_info)
 
                 conn.execute(text("UPDATE job_leads SET status = 'tailored', tailored_at = CURRENT_TIMESTAMP WHERE id = :id"), {"id": db_id})
                 conn.commit()
-                print(f"✅ Application Ready for {company}")
+                print(f"      - Created resumes/{db_id}_Resume.pdf")
+                print(f"      - Created resumes/{db_id}_CoverLetter.pdf")
+                print(f"      ✅ Application Ready for {company}")
+                tailored_count += 1
 
             except Exception as e:
                 print(f"❌ Failed to tailor {company}: {e}")
+
+    return tailored_count
 
 if __name__ == "__main__":
     run_tailor()
