@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS search_profiles (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- 2b. Activity Logs Table
+CREATE TABLE IF NOT EXISTS user_activity (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
+    action VARCHAR(255),
+    details TEXT,
+    ip_address VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- 3. Migrate Users Table (if it already existed without verification_code)
 -- Using a procedure to safely check for column existence
 DROP PROCEDURE IF EXISTS MigrateUsers;

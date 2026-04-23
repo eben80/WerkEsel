@@ -13,7 +13,7 @@ load_dotenv()
 import auth
 from importlib import metadata
 import requests
-from db_utils import engine, setup_db
+from db_utils import engine, setup_db, log_activity
 
 RESUME_DIR = "resumes"
 os.makedirs(RESUME_DIR, exist_ok=True)
@@ -115,6 +115,7 @@ def login_page():
         }
         user = auth.get_or_create_google_user(engine, id_info)
         st.session_state.user = user
+        log_activity(user['id'], "Login (Google)", ip_address=st.context.headers.get("X-Forwarded-For", "unknown"))
         st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["Login", "Sign Up", "Verify Email", "Google Login"])
@@ -129,6 +130,7 @@ def login_page():
                     st.warning("Please verify your email before logging in.")
                 else:
                     st.session_state.user = user
+                    log_activity(user['id'], "Login (Email)", ip_address=st.context.headers.get("X-Forwarded-For", "unknown"))
                     st.success(f"Welcome back, {user['name']}!")
                     st.rerun()
             else:
@@ -166,6 +168,7 @@ def main():
     user = st.session_state.user
     st.sidebar.title(f"🫏 {user['name']}")
     if st.sidebar.button("Logout"):
+        log_activity(user['id'], "Logout")
         authenticator = get_authenticator()
         if authenticator:
             authenticator.logout()
@@ -267,6 +270,7 @@ def show_profiles():
             is_active = st.checkbox("Active", value=p_active, key=f"active_{p_id}")
 
             if st.button("Update Profile", key=f"up_{p_id}"):
+                log_activity(user_id, "Update Profile", details=f"Profile ID: {p_id}")
                 updated_params = []
                 for mode in q_modes:
                     updated_params.append({
@@ -293,6 +297,7 @@ def show_profiles():
             if st.session_state.get(f"confirm_del_{p_id}"):
                 st.warning(f"Are you sure you want to delete profile '{p_name}' and ALL associated jobs?")
                 if st.button("Yes, Delete Everything", key=f"conf_del_{p_id}"):
+                    log_activity(user_id, "Delete Profile", details=f"Profile ID: {p_id}")
                     with engine.connect() as conn:
                         # ON DELETE CASCADE handles jobs
                         conn.execute(text("DELETE FROM search_profiles WHERE id = :id"), {"id": p_id})
@@ -318,6 +323,7 @@ def show_profiles():
         n_sites = st.multiselect("Job Sites", ["linkedin", "indeed", "glassdoor", "zip_recruiter"], default=["linkedin", "indeed", "glassdoor"], key="new_p_sites")
 
         if st.button("Create Profile"):
+            log_activity(user_id, "Create Profile", details=f"Profile Name: {n_name}")
             n_params = []
             for mode in n_modes:
                 n_params.append({
@@ -357,6 +363,7 @@ def show_jobs():
     # --- MANUAL TRIGGERS ---
     t1, t2, t3 = st.columns(3)
     if t1.button("🔍 Run Scout Now", use_container_width=True):
+        log_activity(user_id, "Trigger Scout", details=f"Profile ID: {profile_id}")
         with st.status("Scouting for new jobs...", expanded=True) as status:
             params = profile_params if isinstance(profile_params, list) else json.loads(profile_params or "[]")
             import io
@@ -369,6 +376,7 @@ def show_jobs():
             if st.button("Refresh Page"): st.rerun()
 
     if t2.button("🧠 Run Matcher Now", use_container_width=True):
+        log_activity(user_id, "Trigger Matcher", details=f"Profile ID: {profile_id}")
         with st.status("Analyzing matches with OpenAI...", expanded=True) as status:
             import io
             from contextlib import redirect_stdout
@@ -380,6 +388,7 @@ def show_jobs():
             if st.button("Refresh Page"): st.rerun()
 
     if t3.button("🧵 Run Tailor Now", use_container_width=True):
+        log_activity(user_id, "Trigger Tailor (Batch)", details=f"Profile ID: {profile_id}")
         with st.status("Generating tailored PDFs...", expanded=True) as status:
             import io
             from contextlib import redirect_stdout
@@ -394,6 +403,7 @@ def show_jobs():
     with st.expander("Add job from URL"):
         manual_url = st.text_input("Job URL")
         if st.button("Import Job"):
+            log_activity(user_id, "Manual Job Import", details=f"URL: {manual_url}")
             if manual_url:
                 with st.status("Importing job details...") as status:
                     try:
@@ -502,6 +512,7 @@ def show_jobs():
         else:
             st.error(f"Are you sure you want to delete {len(selected_ids)} jobs?")
             if st.button("Yes, Delete Batch"):
+                log_activity(user_id, "Batch Delete Jobs", details=f"Job IDs: {selected_ids}")
                 with engine.connect() as conn:
                     conn.execute(text("DELETE FROM job_leads WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)), {"ids": selected_ids})
                     conn.commit()
@@ -553,11 +564,13 @@ def show_jobs():
 
                 if status == 'new':
                     if st.button("✅ Approve", key=f"ap_{db_id}", use_container_width=True):
+                        log_activity(user_id, "Approve Job", details=f"Job ID: {db_id}")
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='approved' WHERE id=:id"), {"id": db_id})
                             conn.commit()
                         st.rerun()
                     if st.button("❌ Reject", key=f"rj_{db_id}", use_container_width=True):
+                        log_activity(user_id, "Reject Job", details=f"Job ID: {db_id}")
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='rejected' WHERE id=:id"), {"id": db_id})
                             conn.commit()
@@ -565,6 +578,7 @@ def show_jobs():
 
                 elif status == 'approved':
                     if st.button("🧵 Tailor Now", key=f"tl_{db_id}", use_container_width=True):
+                        log_activity(user_id, "Trigger Tailor (Single)", details=f"Job ID: {db_id}")
                         with st.status("Tailoring...", expanded=True) as s:
                             import io
                             from contextlib import redirect_stdout
@@ -578,24 +592,28 @@ def show_jobs():
                 elif status == 'tailored' or status == 'applied':
                     if status == 'tailored':
                         if st.button("🚀 Apply", key=f"apply_{db_id}", use_container_width=True):
+                            log_activity(user_id, "Mark Applied", details=f"Job ID: {db_id}")
                             with engine.connect() as conn:
                                 conn.execute(text("UPDATE job_leads SET status='applied', applied_at=CURRENT_TIMESTAMP WHERE id=:id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
                     else: # status == 'applied'
                         if st.button("✅ Applied", key=f"unapply_{db_id}", use_container_width=True, help="Click to unmark as applied"):
+                            log_activity(user_id, "Unmark Applied", details=f"Job ID: {db_id}")
                             with engine.connect() as conn:
                                 conn.execute(text("UPDATE job_leads SET status='tailored', applied_at=NULL WHERE id=:id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
                         if st.button("🤝 Interview", key=f"int_{db_id}", use_container_width=True):
+                            log_activity(user_id, "Mark Interviewing", details=f"Job ID: {db_id}")
                             with engine.connect() as conn:
                                 conn.execute(text("UPDATE job_leads SET status='interview' WHERE id=:id"), {"id": db_id})
                                 conn.commit()
                             st.rerun()
 
                         if st.button("👎 Negative", key=f"neg_{db_id}", use_container_width=True):
+                            log_activity(user_id, "Mark Negative/Archive", details=f"Job ID: {db_id}")
                             with engine.connect() as conn:
                                 conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": db_id})
                                 conn.commit()
@@ -603,6 +621,7 @@ def show_jobs():
 
                     # Common Re-Tailor button for both tailored and applied
                     if st.button("♻️ Re-Tailor", key=f"ret_{db_id}", use_container_width=True):
+                        log_activity(user_id, "Trigger Re-Tailor", details=f"Job ID: {db_id}")
                         with st.status("Re-Tailoring...", expanded=True) as s:
                             import io
                             from contextlib import redirect_stdout
@@ -617,6 +636,7 @@ def show_jobs():
                 # Global Archive for any job
                 if status not in ['archived', 'rejected']:
                     if st.button("🗑️ Archive", key=f"arc_{db_id}", use_container_width=True):
+                        log_activity(user_id, "Archive Job", details=f"Job ID: {db_id}")
                         with engine.connect() as conn:
                             conn.execute(text("UPDATE job_leads SET status='archived' WHERE id=:id"), {"id": db_id})
                             conn.commit()
@@ -647,6 +667,7 @@ def show_user_settings():
         new_template = st.text_area("Header Template", value=curr_user[5] or default_template, height=100)
 
         if st.form_submit_button("Save Settings"):
+            log_activity(user_id, "Update User Settings")
             with engine.connect() as conn:
                 conn.execute(text("""
                     UPDATE users
@@ -673,10 +694,37 @@ def show_admin():
     uid = st.number_input("User ID", step=1)
     new_role = st.selectbox("New Role", ["user", "admin"])
     if st.button("Update User Role"):
+        log_activity(st.session_state.user['id'], "Admin: Update User Role", details=f"Target User ID: {uid}, New Role: {new_role}")
         with engine.connect() as conn:
             conn.execute(text("UPDATE users SET role = :r WHERE id = :id"), {"r": new_role, "id": uid})
             conn.commit()
         st.success("User updated!")
+
+    st.divider()
+    st.subheader("🕸️ Web Access & Activity Log")
+
+    # Filtering for logs
+    log_user_id = st.text_input("Filter by User ID (optional)")
+    log_limit = st.slider("Log Limit", 10, 500, 100)
+
+    log_sql = """
+        SELECT ua.id, ua.created_at, u.email, ua.action, ua.details, ua.ip_address
+        FROM user_activity ua
+        LEFT JOIN users u ON ua.user_id = u.id
+        WHERE 1=1
+    """
+    params = {"limit": log_limit}
+    if log_user_id:
+        log_sql += " AND ua.user_id = :uid"
+        params["uid"] = log_user_id
+
+    log_sql += " ORDER BY ua.created_at DESC LIMIT :limit"
+
+    with engine.connect() as conn:
+        logs = conn.execute(text(log_sql), params).fetchall()
+
+    df_logs = pd.DataFrame(logs, columns=['ID', 'Timestamp', 'User', 'Action', 'Details', 'IP'])
+    st.dataframe(df_logs, use_container_width=True)
 
 if __name__ == "__main__":
     main()

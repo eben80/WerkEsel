@@ -50,6 +50,19 @@ def setup_db():
             )
         """))
 
+        # Activity Logs Table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_activity (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT,
+                action VARCHAR(255),
+                details TEXT,
+                ip_address VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        """))
+
         # Migration for existing users
         try:
             conn.execute(text("SELECT verification_code FROM users LIMIT 1"))
@@ -135,4 +148,13 @@ def setup_db():
         except Exception:
             pass
 
+        conn.commit()
+
+def log_activity(user_id, action, details=None, ip_address=None):
+    """Logs a user action to the database."""
+    with engine.connect() as conn:
+        conn.execute(text("""
+            INSERT INTO user_activity (user_id, action, details, ip_address)
+            VALUES (:uid, :act, :det, :ip)
+        """), {"uid": user_id, "act": action, "det": details, "ip": ip_address})
         conn.commit()
